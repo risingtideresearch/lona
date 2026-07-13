@@ -10,9 +10,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Use the local package source in dev/build, so the demo follows changes
-      // to lona without requiring a library rebuild.
-      lona: fileURLToPath(new URL("../../src/main.ts", import.meta.url)),
+      lona: fileURLToPath(
+        new URL("../../packages/lona/src/main.ts", import.meta.url),
+      ),
     },
   },
   build: {

@@ -1,0 +1,21 @@
+{
+  "name": "@lona/demo-show-curves",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "clean": "node ../../scripts/clean.mjs dist",
+    "dev": "vite",
+    "build": "npm run clean && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test-watch": "vitest",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lona": "*",
+    "lona-curves": "*",
+    "lona-geom": "*"
+  }
+}

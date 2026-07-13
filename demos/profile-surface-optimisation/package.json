@@ -1,0 +1,17 @@
+{
+  "name": "@lona/demo-profile-surface-optimisation",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "clean": "node ../../scripts/clean.mjs dist",
+    "dev": "vite",
+    "build": "npm run clean && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lona": "*"
+  }
+}

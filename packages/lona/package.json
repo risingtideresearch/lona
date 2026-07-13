@@ -5,32 +5,32 @@
   "type": "module",
   "main": "dist/lona.js",
   "types": "dist/main.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "import": "./dist/lona.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
+    "clean": "node ../../scripts/clean.mjs dist",
     "test": "vitest run",
+    "test:integration": "vitest run src/eval/real-world-eval.integration.ts --maxWorkers=1",
+    "test:gpu": "LONA_TEST_GPU=1 npm run test:integration",
     "test-watch": "vitest",
     "dev": "vite",
-    "watch": "watchexec -w src vite build --mode debug",
-    "build": "tsc && vite build",
-    "build:debug": "vite build --mode debug",
+    "watch": "npm run clean && vite build --watch --mode debug",
+    "build": "npm run clean && tsc --noEmit && vite build",
+    "build:debug": "npm run clean && vite build --mode debug",
     "preview": "vite preview",
     "lint": "eslint --max-warnings 0 .",
-    "typecheck": "tsc -b",
-    "format": "prettier  --ignore-path .prettierignore --ignore-path ../../.prettierignore --write .",
-    "formatcheck": "prettier --ignore-path .prettierignore --ignore-path ../../.prettierignore --check .",
-    "check": "npm run typecheck; l=$?; npm run lint; r=$?; npm run formatcheck && exit $((l || r))"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.13.0",
-    "@types/eslint__js": "^8.42.3",
-    "@types/node": "^25.0.6",
-    "@webgpu/types": "^0.1.69",
-    "eslint": "^9.13.0",
-    "prettier": "^3.3.3",
-    "typescript": "~5.6.2",
-    "typescript-eslint": "^8.11.0",
-    "vite": "^5.4.9",
-    "vite-plugin-dts": "^4.5.3",
-    "vitest": "^4.1.8"
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --ignore-path ../../.prettierignore --write .",
+    "formatcheck": "prettier --ignore-path ../../.prettierignore --check .",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run formatcheck"
   },
   "dependencies": {
     "decimal.js": "^10.5.0",

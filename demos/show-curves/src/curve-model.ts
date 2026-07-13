@@ -18,7 +18,7 @@ import {
   knuckleSlopes,
   splineFromHermite,
   type Segment,
-} from "../../../src/main";
+} from "lona-curves";
 
 export type SplineKind =
   | "catmull-uniform"

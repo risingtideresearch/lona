@@ -1,11 +1,13 @@
 # lona-curves
 
+Symbolic curve builders built on `lona` and `lona-geom`, including Catmull-Rom,
+Hobby, natural cubic, PCHIP, κ-curves, Yuksel, and Jiang-Chen splines.
+
 Interactive demo:
 
 ```bash
-npm run demo:show-curves -w packages/lona-curves
+npm run dev -w demos/show-curves
 ```
 
-The demo lives in `demo/show-curves`, has its own Vitest coverage in
-`demo/show-curves/show-curves.test.ts`, and lets you click/drag points while
-switching between Catmull-Rom variants and PCHIP.
+The demo lives in [`../../demos/show-curves`](../../demos/show-curves) and has
+its own Vitest workspace.

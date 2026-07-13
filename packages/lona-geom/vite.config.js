@@ -1,20 +1,14 @@
-/* global __dirname */
-import { resolve } from "path";
-import { defineConfig } from "vite";
-import dts from "vite-plugin-dts";
+import { resolve } from "node:path";
+import { createLibraryConfig } from "../../config/vite-library.js";
 
-export default defineConfig({
-  build: {
-    minify: false,
-    lib: {
-      entry: resolve(__dirname, "src/main.ts"),
-      name: "lona-geom",
-      fileName: "lona-geom",
-      formats: ["es"],
+export default createLibraryConfig({
+  packageDir: import.meta.dirname,
+  name: "lona-geom",
+  external: ["lona"],
+  alias: [
+    {
+      find: /^lona$/,
+      replacement: resolve(import.meta.dirname, "../lona/src/main.ts"),
     },
-    rollupOptions: {
-      external: ["lona"],
-    },
-  },
-  plugins: [dts()],
+  ],
 });

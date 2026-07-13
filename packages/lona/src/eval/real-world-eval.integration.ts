@@ -6,7 +6,7 @@
  * the same results as the reference genericEval path across a grid of
  * sample points.
  */
-import { describe, test, expect } from "vitest";
+import { afterAll, describe, test, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { deserializeNumDAG } from "../core/tree-serialization";
@@ -25,14 +25,19 @@ import { compileGradRoutine, type GradRoutine } from "./routines";
 import { compileForwardAutodiff } from "./routines/backends/js-interp/tape-eval";
 import { compileWasmForwardAutodiff } from "./routines/backends/wasm-interp/tape-eval";
 import { compileWasmGradFromTape } from "./routines/backends/wasm-codegen/codegen";
-import { initGpu } from "../main";
+import { destroyGpu, initGpu } from "../main";
 
 // ---------------------------------------------------------------------------
 // Fixture loading
 // ---------------------------------------------------------------------------
 
-const gpuAvailable = (await initGpu()) !== null;
+const shouldTestGpu = process.env.LONA_TEST_GPU === "1";
+const gpuAvailable = shouldTestGpu && (await initGpu()) !== null;
 const gpuTest = test.skipIf(!gpuAvailable);
+
+afterAll(async () => {
+  if (shouldTestGpu) await destroyGpu();
+});
 
 const fixturesDir = path.resolve(import.meta.dirname, "../../bench/fixtures");
 
