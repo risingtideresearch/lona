@@ -1,0 +1,668 @@
+/**
+ * Correctness tests for num evaluation using real-world DAG fixtures
+ * extracted from fonseranes shapes (gridfinity, duckTape, logo).
+ *
+ * Each test verifies that compiled tape and codegen evaluators produce
+ * the same results as the reference genericEval path across a grid of
+ * sample points.
+ */
+import { describe, test, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { deserializeNumDAG } from "../core/tree-serialization";
+import { simpleEval } from "./eval-value";
+import { compileTape, compileTapeFromSerialized } from "./tape";
+import { evalTape } from "./routines/backends/js-interp/tape-eval";
+import { compileFunctionFromTape } from "./routines/backends/js-codegen/codegen";
+import { compileWasmFromTape } from "./routines/backends/wasm-codegen/codegen";
+import { compileWasmTapeFromTape } from "./routines/backends/wasm-interp/tape-eval";
+import { compileGpuTapeFromTape } from "./routines/backends/gpu-interp/tape-eval";
+import { compileGpuCodegenFromTape } from "./routines/backends/gpu-codegen/codegen";
+import { variableNum } from "../core/num";
+import { serializeNumDAG } from "../core/tree-serialization";
+import type { VarName } from "../core/tree";
+import { compileGradRoutine, type GradRoutine } from "./routines";
+import { compileForwardAutodiff } from "./routines/backends/js-interp/tape-eval";
+import { compileWasmForwardAutodiff } from "./routines/backends/wasm-interp/tape-eval";
+import { compileWasmGradFromTape } from "./routines/backends/wasm-codegen/codegen";
+import { initGpu } from "../main";
+
+// ---------------------------------------------------------------------------
+// Fixture loading
+// ---------------------------------------------------------------------------
+
+const gpuAvailable = (await initGpu()) !== null;
+const gpuTest = test.skipIf(!gpuAvailable);
+
+const fixturesDir = path.resolve(import.meta.dirname, "../../bench/fixtures");
+
+function loadFixture(filename: string) {
+  const raw = fs.readFileSync(path.join(fixturesDir, filename), "utf-8");
+  return JSON.parse(raw);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Sample a 3D grid and evaluate with the reference (genericEval) path */
+function referenceGrid3D(
+  root: ReturnType<typeof deserializeNumDAG>,
+  xs: number[],
+  ys: number[],
+  zs: number[],
+): number[] {
+  const bindings = new Map<VarName, number>([
+    ["x", 0],
+    ["y", 0],
+    ["z", 0],
+  ]);
+  const results: number[] = [];
+  for (const z of zs) {
+    bindings.set("z", z);
+    for (const y of ys) {
+      bindings.set("y", y);
+      for (const x of xs) {
+        bindings.set("x", x);
+        results.push(simpleEval(root, bindings, true)); // logDebug=true -> genericEval
+      }
+    }
+  }
+  return results;
+}
+
+function linspace(min: number, max: number, n: number): number[] {
+  const step = (max - min) / (n - 1);
+  return Array.from({ length: n }, (_, i) => min + i * step);
+}
+
+/** Build a Float32Array of varData for a 3D grid, given varSlots ordering */
+function makeGridVarData3D(
+  xs: number[],
+  ys: number[],
+  zs: number[],
+  varSlots: VarName[],
+): Float32Array {
+  const numVars = varSlots.length;
+  const numPoints = xs.length * ys.length * zs.length;
+  const data = new Float32Array(numPoints * numVars);
+  const xIdx = varSlots.indexOf("x" as VarName);
+  const yIdx = varSlots.indexOf("y" as VarName);
+  const zIdx = varSlots.indexOf("z" as VarName);
+  let p = 0;
+  for (const z of zs)
+    for (const y of ys)
+      for (const x of xs) {
+        const base = p * numVars;
+        if (xIdx >= 0) data[base + xIdx] = x;
+        if (yIdx >= 0) data[base + yIdx] = y;
+        if (zIdx >= 0) data[base + zIdx] = z;
+        p++;
+      }
+  return data;
+}
+
+/** Build a Float32Array of varData for a 2D grid (z=0), given varSlots ordering */
+function makeGridVarData2D(
+  xs: number[],
+  ys: number[],
+  varSlots: VarName[],
+): Float32Array {
+  const numVars = varSlots.length;
+  const numPoints = xs.length * ys.length;
+  const data = new Float32Array(numPoints * numVars);
+  const xIdx = varSlots.indexOf("x" as VarName);
+  const yIdx = varSlots.indexOf("y" as VarName);
+  let p = 0;
+  for (const y of ys)
+    for (const x of xs) {
+      const base = p * numVars;
+      if (xIdx >= 0) data[base + xIdx] = x;
+      if (yIdx >= 0) data[base + yIdx] = y;
+      p++;
+    }
+  return data;
+}
+
+/** Max absolute error between f32 GPU results and f64 CPU reference */
+function maxAbsError(gpuResults: Float32Array, cpuReference: number[]): number {
+  let maxErr = 0;
+  for (let i = 0; i < cpuReference.length; i++) {
+    maxErr = Math.max(maxErr, Math.abs(gpuResults[i]! - cpuReference[i]!));
+  }
+  return maxErr;
+}
+
+// f32 precision tolerance -- GPU uses f32, CPU uses f64
+const GPU_TOLERANCE = 1e-3;
+
+// ---------------------------------------------------------------------------
+// Test suites per fixture
+// ---------------------------------------------------------------------------
+
+const GRID_N = 5; // 5x5x5 = 125 sample points per fixture
+
+describe.each([
+  { name: "gridfinity-3d", file: "gridfinity-3d-numtree.json" },
+  { name: "ducktape-3d", file: "ducktape-3d-numtree.json" },
+  { name: "logo-3d", file: "logo-3d-numtree.json" },
+])("$name", ({ file }) => {
+  const fixture = loadFixture(file);
+  const dag = fixture.compressSimplify.dag;
+  const bounds = fixture.bounds as {
+    x: [number, number];
+    y: [number, number];
+    z: [number, number];
+  };
+  const root = deserializeNumDAG(dag);
+
+  const xs = linspace(bounds.x[0], bounds.x[1], GRID_N);
+  const ys = linspace(bounds.y[0], bounds.y[1], GRID_N);
+  const zs = linspace(bounds.z[0], bounds.z[1], GRID_N);
+
+  const reference = referenceGrid3D(root, xs, ys, zs);
+
+  test("compiledTape matches genericEval", () => {
+    const tape = compileTapeFromSerialized(dag);
+    expect(tape).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+      ["z", 0],
+    ]);
+    const results: number[] = [];
+    for (const z of zs) {
+      vars.set("z", z);
+      for (const y of ys) {
+        vars.set("y", y);
+        for (const x of xs) {
+          vars.set("x", x);
+          results.push(evalTape(tape!, vars)[0]!);
+        }
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("codegen matches genericEval", () => {
+    const fn = compileFunctionFromTape(compileTapeFromSerialized(dag)!);
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+      ["z", 0],
+    ]);
+    const results: number[] = [];
+    for (const z of zs) {
+      vars.set("z", z);
+      for (const y of ys) {
+        vars.set("y", y);
+        for (const x of xs) {
+          vars.set("x", x);
+          results.push(fn!(vars)[0]!);
+        }
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("wasm matches genericEval", () => {
+    const fn = compileWasmFromTape(compileTapeFromSerialized(dag)!);
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+      ["z", 0],
+    ]);
+    const results: number[] = [];
+    for (const z of zs) {
+      vars.set("z", z);
+      for (const y of ys) {
+        vars.set("y", y);
+        for (const x of xs) {
+          vars.set("x", x);
+          results.push(fn!(vars)[0]!);
+        }
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("wasmTape matches genericEval", () => {
+    const fn = compileWasmTapeFromTape(compileTapeFromSerialized(dag)!);
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+      ["z", 0],
+    ]);
+    const results: number[] = [];
+    for (const z of zs) {
+      vars.set("z", z);
+      for (const y of ys) {
+        vars.set("y", y);
+        for (const x of xs) {
+          vars.set("x", x);
+          results.push(fn!(vars)[0]!);
+        }
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  gpuTest("gpuTape approximately matches genericEval (f32)", async () => {
+    const gpuEval = await compileGpuTapeFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    const numPoints = xs.length * ys.length * zs.length;
+    const varData = makeGridVarData3D(xs, ys, zs, gpuEval!.varSlots);
+    const results = await gpuEval!.evalBatch(varData, numPoints);
+
+    const err = maxAbsError(results, reference);
+    expect(err).toBeLessThan(GPU_TOLERANCE);
+
+    gpuEval!.destroy();
+  });
+
+  gpuTest("gpuCodegen approximately matches genericEval (f32)", async () => {
+    const gpuEval = await compileGpuCodegenFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    const numPoints = xs.length * ys.length * zs.length;
+    const varData = makeGridVarData3D(xs, ys, zs, gpuEval!.varSlots);
+    const results = await gpuEval!.evalBatch(varData, numPoints);
+
+    const err = maxAbsError(results, reference);
+    expect(err).toBeLessThan(GPU_TOLERANCE);
+
+    gpuEval!.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2D slice fixture (gridfinity slice)
+// ---------------------------------------------------------------------------
+
+describe("gridfinity-slice-2d", () => {
+  const fixture = loadFixture("gridfinity-slice-numtree.json");
+  const dag = fixture.compressSimplify.dag;
+  const bounds = fixture.bounds as { x: [number, number]; y: [number, number] };
+  const root = deserializeNumDAG(dag);
+
+  const xs = linspace(bounds.x[0], bounds.x[1], GRID_N);
+  const ys = linspace(bounds.y[0], bounds.y[1], GRID_N);
+
+  const bindings = new Map<VarName, number>([
+    ["x", 0],
+    ["y", 0],
+  ]);
+
+  const reference: number[] = [];
+  for (const y of ys) {
+    bindings.set("y", y);
+    for (const x of xs) {
+      bindings.set("x", x);
+      reference.push(simpleEval(root, bindings, true));
+    }
+  }
+
+  test("compiledTape matches genericEval", () => {
+    const tape = compileTapeFromSerialized(dag)!;
+    expect(tape).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+    ]);
+    const results: number[] = [];
+    for (const y of ys) {
+      vars.set("y", y);
+      for (const x of xs) {
+        vars.set("x", x);
+        results.push(evalTape(tape, vars)[0]!);
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("codegen matches genericEval", () => {
+    const fn = compileFunctionFromTape(compileTapeFromSerialized(dag)!)!;
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+    ]);
+    const results: number[] = [];
+    for (const y of ys) {
+      vars.set("y", y);
+      for (const x of xs) {
+        vars.set("x", x);
+        results.push(fn(vars)[0]!);
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("wasm matches genericEval", () => {
+    const fn = compileWasmFromTape(compileTapeFromSerialized(dag)!)!;
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+    ]);
+    const results: number[] = [];
+    for (const y of ys) {
+      vars.set("y", y);
+      for (const x of xs) {
+        vars.set("x", x);
+        results.push(fn(vars)[0]!);
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  test("wasmTape matches genericEval", () => {
+    const fn = compileWasmTapeFromTape(compileTapeFromSerialized(dag)!)!;
+    expect(fn).not.toBeNull();
+
+    const vars = new Map<VarName, number>([
+      ["x", 0],
+      ["y", 0],
+    ]);
+    const results: number[] = [];
+    for (const y of ys) {
+      vars.set("y", y);
+      for (const x of xs) {
+        vars.set("x", x);
+        results.push(fn(vars)[0]!);
+      }
+    }
+
+    for (let i = 0; i < reference.length; i++) {
+      expect(results[i]).toBe(reference[i]);
+    }
+  });
+
+  gpuTest("gpuTape approximately matches genericEval (f32)", async () => {
+    const gpuEval = await compileGpuTapeFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    const numPoints = xs.length * ys.length;
+    const varData = makeGridVarData2D(xs, ys, gpuEval!.varSlots);
+    const results = await gpuEval!.evalBatch(varData, numPoints);
+
+    const err = maxAbsError(results, reference);
+    expect(err).toBeLessThan(GPU_TOLERANCE);
+
+    gpuEval!.destroy();
+  });
+
+  gpuTest("gpuCodegen approximately matches genericEval (f32)", async () => {
+    const gpuEval = await compileGpuCodegenFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    const numPoints = xs.length * ys.length;
+    const varData = makeGridVarData2D(xs, ys, gpuEval!.varSlots);
+    const results = await gpuEval!.evalBatch(varData, numPoints);
+
+    const err = maxAbsError(results, reference);
+    expect(err).toBeLessThan(GPU_TOLERANCE);
+
+    gpuEval!.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Named variables (beyond x, y, z)
+// ---------------------------------------------------------------------------
+
+describe("named variables", () => {
+  // Expression: x + w * y  -- uses named variable "w"
+  const x = variableNum("x");
+  const y = variableNum("y");
+  const w = variableNum("w");
+  const expr = x.add(w.mul(y));
+  const dag = serializeNumDAG(expr.n);
+
+  // Test points
+  const testCases = [
+    { x: 1, y: 2, w: 3 }, // 1 + 3*2 = 7
+    { x: 0, y: 5, w: -2 }, // 0 + (-2)*5 = -10
+    { x: 10, y: 0.5, w: 4 }, // 10 + 4*0.5 = 12
+  ];
+
+  const reference = testCases.map((c) =>
+    simpleEval(
+      expr.n,
+      new Map<VarName, number>([
+        ["x", c.x],
+        ["y", c.y],
+        ["w", c.w],
+      ]),
+      true,
+    ),
+  );
+
+  test("compiledTape", () => {
+    const tape = compileTape([expr.n])!;
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const vars = new Map<VarName, number>([
+        ["x", c.x],
+        ["y", c.y],
+        ["w", c.w],
+      ]);
+      expect(evalTape(tape, vars)[0]).toBe(reference[i]);
+    }
+  });
+
+  test("codegen", () => {
+    const fn = compileFunctionFromTape(compileTape([expr.n])!)!;
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const vars = new Map<VarName, number>([
+        ["x", c.x],
+        ["y", c.y],
+        ["w", c.w],
+      ]);
+      expect(fn(vars)[0]).toBe(reference[i]);
+    }
+  });
+
+  test("wasm", () => {
+    const fn = compileWasmFromTape(compileTape([expr.n])!)!;
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const vars = new Map<VarName, number>([
+        ["x", c.x],
+        ["y", c.y],
+        ["w", c.w],
+      ]);
+      expect(fn(vars)[0]).toBe(reference[i]);
+    }
+  });
+
+  test("wasmTape", () => {
+    const fn = compileWasmTapeFromTape(compileTape([expr.n])!)!;
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const vars = new Map<VarName, number>([
+        ["x", c.x],
+        ["y", c.y],
+        ["w", c.w],
+      ]);
+      expect(fn(vars)[0]).toBe(reference[i]);
+    }
+  });
+
+  gpuTest("gpuTape", async () => {
+    const gpuEval = await compileGpuTapeFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const numVars = gpuEval!.varSlots.length;
+      const varData = new Float32Array(numVars);
+      for (let v = 0; v < numVars; v++) {
+        const name = gpuEval!.varSlots[v]! as string;
+        varData[v] = (c as Record<string, number>)[name] ?? 0;
+      }
+      const results = await gpuEval!.evalBatch(varData, 1);
+      expect(results[0]).toBeCloseTo(reference[i]!, 3);
+    }
+
+    gpuEval!.destroy();
+  });
+
+  gpuTest("gpuCodegen", async () => {
+    const gpuEval = await compileGpuCodegenFromTape(
+      compileTapeFromSerialized(dag)!,
+    );
+    expect(gpuEval).not.toBeNull();
+
+    for (let i = 0; i < testCases.length; i++) {
+      const c = testCases[i]!;
+      const numVars = gpuEval!.varSlots.length;
+      const varData = new Float32Array(numVars);
+      for (let v = 0; v < numVars; v++) {
+        const name = gpuEval!.varSlots[v]! as string;
+        varData[v] = (c as Record<string, number>)[name] ?? 0;
+      }
+      const results = await gpuEval!.evalBatch(varData, 1);
+      expect(results[0]).toBeCloseTo(reference[i]!, 3);
+    }
+
+    gpuEval!.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gradient parity — JS tape vs WASM tape vs WASM codegen
+// ---------------------------------------------------------------------------
+
+const GRAD_GRID_N = 4; // 4^3 = 64 points per fixture
+const DIFF_VARS: VarName[] = ["x" as VarName, "y" as VarName, "z" as VarName];
+
+/** Build a flat array of grid points as Maps, reusable across tests. */
+function makeGradGridPoints(bounds: {
+  x: [number, number];
+  y: [number, number];
+  z: [number, number];
+}): Map<VarName, number>[] {
+  const xs = linspace(bounds.x[0], bounds.x[1], GRAD_GRID_N);
+  const ys = linspace(bounds.y[0], bounds.y[1], GRAD_GRID_N);
+  const zs = linspace(bounds.z[0], bounds.z[1], GRAD_GRID_N);
+  const points: Map<VarName, number>[] = [];
+  for (const z of zs)
+    for (const y of ys)
+      for (const x of xs)
+        points.push(
+          new Map<VarName, number>([
+            ["x" as VarName, x],
+            ["y" as VarName, y],
+            ["z" as VarName, z],
+          ]),
+        );
+  return points;
+}
+
+describe.each([
+  { name: "gridfinity-3d", file: "gridfinity-3d-numtree.json" },
+  { name: "ducktape-3d", file: "ducktape-3d-numtree.json" },
+  { name: "logo-3d", file: "logo-3d-numtree.json" },
+])("$name gradient parity", ({ file }) => {
+  const fixture = loadFixture(file);
+  const dag = fixture.compressSimplify.dag;
+  const bounds = fixture.bounds as {
+    x: [number, number];
+    y: [number, number];
+    z: [number, number];
+  };
+  const root = deserializeNumDAG(dag);
+  const tape = compileTape([root])!;
+  const points = makeGradGridPoints(bounds);
+
+  // Precompute reference grid using JS tape forward autodiff
+  const jsFn = compileForwardAutodiff(tape, DIFF_VARS);
+  const refVals: number[] = [];
+  const refGrads: number[][] = [];
+  for (const pt of points) {
+    const r = jsFn(pt);
+    refVals.push(r.val);
+    refGrads.push(r.gradient);
+  }
+
+  function expectMatchesRef(
+    fn: (vars: Map<VarName, number>) => { val: number; gradient: number[] },
+    precision: number,
+  ) {
+    for (let i = 0; i < points.length; i++) {
+      const r = fn(points[i]!);
+      expect(r.val).toBeCloseTo(refVals[i]!, precision);
+      for (let d = 0; d < DIFF_VARS.length; d++) {
+        expect(r.gradient[d]).toBeCloseTo(refGrads[i]![d]!, precision);
+      }
+    }
+  }
+
+  test("WASM tape matches JS tape", () => {
+    expectMatchesRef(compileWasmForwardAutodiff(tape, DIFF_VARS), 12);
+  });
+
+  test("WASM codegen matches JS tape", () => {
+    const wasmFn = compileWasmGradFromTape(compileTape([root])!, DIFF_VARS)!;
+    expect(wasmFn).not.toBeNull();
+    expectMatchesRef(wasmFn, 10);
+  });
+
+  test("GradRoutine (wasm-interp) matches JS tape", () => {
+    const routine = compileGradRoutine([root], DIFF_VARS, {
+      backend: "wasm-interp",
+    })! as GradRoutine;
+    expectMatchesRef((vars) => routine.eval(vars), 12);
+  });
+
+  test("GradRoutine (js-interp) matches JS tape", () => {
+    const routine = compileGradRoutine([root], DIFF_VARS, {
+      backend: "js-interp",
+    })! as GradRoutine;
+    expectMatchesRef((vars) => routine.eval(vars), 14);
+  });
+});

@@ -1,0 +1,5341 @@
+{
+  "description": "Serialized NumNode DAG from a single XY slice (z=10) of the gridfinity bench shape",
+  "z": 10,
+  "bounds": {
+    "x": [
+      -45,
+      45
+    ],
+    "y": [
+      -25,
+      25
+    ]
+  },
+  "compressSimplify": {
+    "dag": {
+      "nodes": [
+        {
+          "type": "LIT",
+          "value": 0
+        },
+        {
+          "type": "VAR",
+          "name": "x"
+        },
+        {
+          "type": "LIT",
+          "value": -37.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 1,
+          "right": 2
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 3,
+          "right": 3
+        },
+        {
+          "type": "VAR",
+          "name": "y"
+        },
+        {
+          "type": "LIT",
+          "value": -20.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 5,
+          "right": 6
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 7,
+          "right": 7
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 4,
+          "right": 8
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 9
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 10
+        },
+        {
+          "type": "LIT",
+          "value": 37.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 1,
+          "right": 12
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 13,
+          "right": 13
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 14,
+          "right": 8
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 15
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 16
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 11,
+          "right": 17
+        },
+        {
+          "type": "LIT",
+          "value": 0
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 18,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 20
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 3,
+          "right": 7
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 7,
+          "right": 13
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 22,
+          "right": 23
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 3,
+          "right": 13
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 25,
+          "right": 8
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 24,
+          "right": 26
+        },
+        {
+          "type": "LIT",
+          "value": 6.283185307179586
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 27,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 21,
+          "right": 29
+        },
+        {
+          "type": "LIT",
+          "value": 41.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 1,
+          "right": 31
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 32,
+          "right": 32
+        },
+        {
+          "type": "LIT",
+          "value": -16.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 5,
+          "right": 34
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 35,
+          "right": 35
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 33,
+          "right": 36
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 37
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 38
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 17,
+          "right": 39
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 40,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 41
+        },
+        {
+          "type": "LIT",
+          "value": 1e-8
+        },
+        {
+          "type": "LIT",
+          "value": -0.7071067811865475
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 44,
+          "right": 1
+        },
+        {
+          "type": "LIT",
+          "value": 0.7071067811865475
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 46,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 45,
+          "right": 47
+        },
+        {
+          "type": "LIT",
+          "value": 41.36574669941303
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 48,
+          "right": 49
+        },
+        {
+          "type": "LIT",
+          "value": 0.9999999999999999
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 50,
+          "right": 51
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 52
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 53,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 13,
+          "right": 35
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 7,
+          "right": 32
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 55,
+          "right": 56
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 13,
+          "right": 32
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 7,
+          "right": 35
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 58,
+          "right": 59
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 57,
+          "right": 60
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 61,
+          "right": 28
+        },
+        {
+          "type": "LIT",
+          "value": -1e-8
+        },
+        {
+          "type": "LIT",
+          "value": 0.0625
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 1
+        },
+        {
+          "type": "LIT",
+          "value": -2.359375
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 65,
+          "right": 66
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 1,
+          "right": 67
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 5
+        },
+        {
+          "type": "LIT",
+          "value": 1.046875
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 69,
+          "right": 70
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 5,
+          "right": 71
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 68,
+          "right": 72
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 66,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 70,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 74,
+          "right": 75
+        },
+        {
+          "type": "LIT",
+          "value": 105.6015625
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 76,
+          "right": 77
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 73,
+          "right": 78
+        },
+        {
+          "type": "LIT",
+          "value": 1e-10
+        },
+        {
+          "type": "LIT",
+          "value": 2
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 67,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 82,
+          "right": 82
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 71,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 84,
+          "right": 84
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 83,
+          "right": 85
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 86
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 87
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 88,
+          "right": 0
+        },
+        {
+          "type": "LIT",
+          "value": 1
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 89,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 89
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 92,
+          "right": 87
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 91,
+          "right": 93
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 79,
+          "right": 94
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 95
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 96,
+          "right": 0
+        },
+        {
+          "type": "LIT",
+          "value": 1
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 62
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 99
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 97,
+          "right": 100
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 101,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 102,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 62,
+          "right": 103
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 54,
+          "right": 104
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 54
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 106,
+          "right": 62
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 105,
+          "right": 107
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 42,
+          "right": 108
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 30,
+          "right": 109
+        },
+        {
+          "type": "LIT",
+          "value": 16.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 5,
+          "right": 111
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 112,
+          "right": 112
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 33,
+          "right": 113
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 114
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 115
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 39,
+          "right": 116
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 117,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 118
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 32,
+          "right": 112
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 35,
+          "right": 32
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 120,
+          "right": 121
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 35,
+          "right": 112
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 33,
+          "right": 123
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 122,
+          "right": 124
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 125,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 119,
+          "right": 126
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 110,
+          "right": 127
+        },
+        {
+          "type": "LIT",
+          "value": 20.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 5,
+          "right": 129
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 130,
+          "right": 130
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 14,
+          "right": 131
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 132
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 133
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 116,
+          "right": 134
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 135,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 136
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 44,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 44,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 138,
+          "right": 139
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 140,
+          "right": 49
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 141,
+          "right": 51
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 142
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 143,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 32,
+          "right": 130
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 112,
+          "right": 13
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 145,
+          "right": 146
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 32,
+          "right": 13
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 112,
+          "right": 130
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 148,
+          "right": 149
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 147,
+          "right": 150
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 151,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 153,
+          "right": 66
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 1,
+          "right": 154
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 5
+        },
+        {
+          "type": "LIT",
+          "value": -1.046875
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 156,
+          "right": 157
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 5,
+          "right": 158
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 155,
+          "right": 159
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 66,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 157,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 161,
+          "right": 162
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 163,
+          "right": 77
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 160,
+          "right": 164
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 154,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 166,
+          "right": 166
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 158,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 168,
+          "right": 168
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 167,
+          "right": 169
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 170
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 171
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 172,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 173,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 173
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 175,
+          "right": 171
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 174,
+          "right": 176
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 165,
+          "right": 177
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 178
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 179,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 152
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 181
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 180,
+          "right": 182
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 183,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 184,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 152,
+          "right": 185
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 144,
+          "right": 186
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 144
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 188,
+          "right": 152
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 187,
+          "right": 189
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 137,
+          "right": 190
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 128,
+          "right": 191
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 4,
+          "right": 131
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 193
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 194
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 134,
+          "right": 195
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 196,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 197
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 13,
+          "right": 130
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 130,
+          "right": 3
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 199,
+          "right": 200
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 13,
+          "right": 3
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 202,
+          "right": 131
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 201,
+          "right": 203
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 204,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 198,
+          "right": 205
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 192,
+          "right": 206
+        },
+        {
+          "type": "LIT",
+          "value": -41.75
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 1,
+          "right": 208
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 209,
+          "right": 209
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 210,
+          "right": 113
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 211
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 212
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 195,
+          "right": 213
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 214,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 215
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 46,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 44,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 217,
+          "right": 218
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 219,
+          "right": 49
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 220,
+          "right": 51
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 221
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 222,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 3,
+          "right": 112
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 130,
+          "right": 209
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 224,
+          "right": 225
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 3,
+          "right": 209
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 130,
+          "right": 112
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 227,
+          "right": 228
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 226,
+          "right": 229
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 230,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 1
+        },
+        {
+          "type": "LIT",
+          "value": 2.359375
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 232,
+          "right": 233
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 1,
+          "right": 234
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 236,
+          "right": 157
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 5,
+          "right": 237
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 235,
+          "right": 238
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 233,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 157,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 240,
+          "right": 241
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 242,
+          "right": 77
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 239,
+          "right": 243
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 234,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 245,
+          "right": 245
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 237,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 247,
+          "right": 247
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 246,
+          "right": 248
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 249
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 250
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 251,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 252,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 252
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 254,
+          "right": 250
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 253,
+          "right": 255
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 244,
+          "right": 256
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 257
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 258,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 231
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 260
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 259,
+          "right": 261
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 262,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 263,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 231,
+          "right": 264
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 223,
+          "right": 265
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 223
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 267,
+          "right": 231
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 266,
+          "right": 268
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 216,
+          "right": 269
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 207,
+          "right": 270
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 210,
+          "right": 36
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 272
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 273
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 213,
+          "right": 274
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 275,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 276
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 209,
+          "right": 35
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 112,
+          "right": 209
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 278,
+          "right": 279
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 112,
+          "right": 35
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 210,
+          "right": 281
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 280,
+          "right": 282
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 283,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 277,
+          "right": 284
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 271,
+          "right": 285
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 274,
+          "right": 11
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 287,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 288
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 46,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 46,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 290,
+          "right": 291
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 292,
+          "right": 49
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 293,
+          "right": 51
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 294
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 295,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 209,
+          "right": 7
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 35,
+          "right": 3
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 297,
+          "right": 298
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 209,
+          "right": 3
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 35,
+          "right": 7
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 300,
+          "right": 301
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 299,
+          "right": 302
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 303,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 305,
+          "right": 233
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 1,
+          "right": 306
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 64,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 308,
+          "right": 70
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 5,
+          "right": 309
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 307,
+          "right": 310
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 233,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 70,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 312,
+          "right": 313
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 314,
+          "right": 77
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 311,
+          "right": 315
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 306,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 317,
+          "right": 317
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 309,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 319,
+          "right": 319
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 318,
+          "right": 320
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 321
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 322
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 323,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 324,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 324
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 326,
+          "right": 322
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 325,
+          "right": 327
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 316,
+          "right": 328
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 329
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 330,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 304
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 332
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 331,
+          "right": 333
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 334,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 335,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 304,
+          "right": 336
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 296,
+          "right": 337
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 296
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 339,
+          "right": 304
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 338,
+          "right": 340
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 289,
+          "right": 341
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 286,
+          "right": 342
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 343
+        },
+        {
+          "type": "LIT",
+          "value": 0.5
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 344,
+          "right": 345
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 346,
+          "right": 0
+        },
+        {
+          "type": "LIT",
+          "value": -1
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 1
+        },
+        {
+          "type": "LIT",
+          "value": -37.75
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 349,
+          "right": 350
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 1,
+          "right": 350
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 351,
+          "right": 352
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 353
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 354,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 355,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 5
+        },
+        {
+          "type": "LIT",
+          "value": -20.75
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 357,
+          "right": 358
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 359
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 356,
+          "right": 360
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 356
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 353
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 363,
+          "right": 360
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 362,
+          "right": 364
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 361,
+          "right": 365
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 52
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 367,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 368,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 95
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 369,
+          "right": 370
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 369
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 52
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 373,
+          "right": 370
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 372,
+          "right": 374
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 371,
+          "right": 375
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 366,
+          "right": 376
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 5
+        },
+        {
+          "type": "LIT",
+          "value": -16.749999999999996
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 378,
+          "right": 379
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 5,
+          "right": 379
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 380,
+          "right": 381
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 382
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 383,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 384,
+          "right": 90
+        },
+        {
+          "type": "LIT",
+          "value": -41.75
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 1,
+          "right": 386
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 387
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 385,
+          "right": 388
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 385
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 382
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 391,
+          "right": 388
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 390,
+          "right": 392
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 389,
+          "right": 393
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 377,
+          "right": 394
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 142
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 396,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 397,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 178
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 398,
+          "right": 399
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 398
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 142
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 402,
+          "right": 399
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 401,
+          "right": 403
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 400,
+          "right": 404
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 395,
+          "right": 405
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 352,
+          "right": 351
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 407
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 408,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 409,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 5,
+          "right": 358
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 411
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 410,
+          "right": 412
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 410
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 407
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 415,
+          "right": 412
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 414,
+          "right": 416
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 413,
+          "right": 417
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 406,
+          "right": 418
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 221
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 420,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 421,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 257
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 422,
+          "right": 423
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 422
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 221
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 426,
+          "right": 423
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 425,
+          "right": 427
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 424,
+          "right": 428
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 419,
+          "right": 429
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 381,
+          "right": 380
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 431
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 432,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 433,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 435,
+          "right": 386
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 436
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 434,
+          "right": 437
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 434
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 431
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 440,
+          "right": 437
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 439,
+          "right": 441
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 438,
+          "right": 442
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 430,
+          "right": 443
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 294
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 445,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 446,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 329
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 447,
+          "right": 448
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 447
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 294
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 451,
+          "right": 448
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 450,
+          "right": 452
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 449,
+          "right": 453
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 444,
+          "right": 454
+        },
+        {
+          "type": "UNA",
+          "op": "NEG",
+          "input": 455
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 347,
+          "right": 456
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 347
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 458,
+          "right": 455
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 457,
+          "right": 459
+        },
+        {
+          "type": "LIT",
+          "value": 1.0000000000000002
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 461,
+          "right": 1
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 462,
+          "right": 461
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 463,
+          "right": 2
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 464,
+          "right": 464
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 461,
+          "right": 5
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 466,
+          "right": 461
+        },
+        {
+          "type": "LIT",
+          "value": -19.55
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 467,
+          "right": 468
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 469,
+          "right": 469
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 465,
+          "right": 470
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 471
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 472
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 463,
+          "right": 12
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 474,
+          "right": 474
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 475,
+          "right": 470
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 476
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 477
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 473,
+          "right": 478
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 479,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 480
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 464,
+          "right": 469
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 469,
+          "right": 474
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 482,
+          "right": 483
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 464,
+          "right": 474
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 485,
+          "right": 470
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 484,
+          "right": 486
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 487,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 481,
+          "right": 488
+        },
+        {
+          "type": "LIT",
+          "value": 40.55
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 463,
+          "right": 490
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 491,
+          "right": 491
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 467,
+          "right": 34
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 493,
+          "right": 493
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 492,
+          "right": 494
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 495
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 496
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 478,
+          "right": 497
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 498,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 499
+        },
+        {
+          "type": "LIT",
+          "value": -0.7071067811865479
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 501,
+          "right": 463
+        },
+        {
+          "type": "LIT",
+          "value": 0.7071067811865472
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 503,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 502,
+          "right": 504
+        },
+        {
+          "type": "LIT",
+          "value": 40.51721856198918
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 505,
+          "right": 506
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 507
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 508,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 474,
+          "right": 493
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 469,
+          "right": 491
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 510,
+          "right": 511
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 474,
+          "right": 491
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 469,
+          "right": 493
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 513,
+          "right": 514
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 512,
+          "right": 515
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 516,
+          "right": 28
+        },
+        {
+          "type": "LIT",
+          "value": 0.12755102040816338
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 463
+        },
+        {
+          "type": "LIT",
+          "value": -4.815051020408168
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 519,
+          "right": 520
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 463,
+          "right": 521
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 467
+        },
+        {
+          "type": "LIT",
+          "value": 2.136479591836737
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 523,
+          "right": 524
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 467,
+          "right": 525
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 522,
+          "right": 526
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 520,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 524,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 528,
+          "right": 529
+        },
+        {
+          "type": "LIT",
+          "value": 216.55420918367366
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 530,
+          "right": 531
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 527,
+          "right": 532
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 521,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 534,
+          "right": 534
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 525,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 536,
+          "right": 536
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 535,
+          "right": 537
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 538
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 539
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 540,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 541,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 541
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 543,
+          "right": 539
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 542,
+          "right": 544
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 533,
+          "right": 545
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 546
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 547,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 517
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 549
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 548,
+          "right": 550
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 551,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 552,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 517,
+          "right": 553
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 509,
+          "right": 554
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 509
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 556,
+          "right": 517
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 555,
+          "right": 557
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 500,
+          "right": 558
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 489,
+          "right": 559
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 467,
+          "right": 111
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 561,
+          "right": 561
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 492,
+          "right": 562
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 563
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 564
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 497,
+          "right": 565
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 566,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 567
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 491,
+          "right": 561
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 493,
+          "right": 491
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 569,
+          "right": 570
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 493,
+          "right": 561
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 492,
+          "right": 572
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 571,
+          "right": 573
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 574,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 568,
+          "right": 575
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 560,
+          "right": 576
+        },
+        {
+          "type": "LIT",
+          "value": 19.55
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 467,
+          "right": 578
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 579,
+          "right": 579
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 475,
+          "right": 580
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 581
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 582
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 565,
+          "right": 583
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 584,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 585
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 501,
+          "right": 463
+        },
+        {
+          "type": "LIT",
+          "value": -0.7071067811865472
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 588,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 587,
+          "right": 589
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 590,
+          "right": 506
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 591
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 592,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 491,
+          "right": 579
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 561,
+          "right": 474
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 594,
+          "right": 595
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 491,
+          "right": 474
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 561,
+          "right": 579
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 597,
+          "right": 598
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 596,
+          "right": 599
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 600,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 602,
+          "right": 520
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 463,
+          "right": 603
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 467
+        },
+        {
+          "type": "LIT",
+          "value": -2.136479591836737
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 605,
+          "right": 606
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 467,
+          "right": 607
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 604,
+          "right": 608
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 520,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 606,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 610,
+          "right": 611
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 612,
+          "right": 531
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 609,
+          "right": 613
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 603,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 615,
+          "right": 615
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 607,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 617,
+          "right": 617
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 616,
+          "right": 618
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 619
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 620
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 621,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 622,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 622
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 624,
+          "right": 620
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 623,
+          "right": 625
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 614,
+          "right": 626
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 627
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 628,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 601
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 630
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 629,
+          "right": 631
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 632,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 633,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 601,
+          "right": 634
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 593,
+          "right": 635
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 593
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 637,
+          "right": 601
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 636,
+          "right": 638
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 586,
+          "right": 639
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 577,
+          "right": 640
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 465,
+          "right": 580
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 642
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 643
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 583,
+          "right": 644
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 645,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 646
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 474,
+          "right": 579
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 579,
+          "right": 464
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 648,
+          "right": 649
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 474,
+          "right": 464
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 651,
+          "right": 580
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 650,
+          "right": 652
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 653,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 647,
+          "right": 654
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 641,
+          "right": 655
+        },
+        {
+          "type": "LIT",
+          "value": -40.55
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 463,
+          "right": 657
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 658,
+          "right": 658
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 659,
+          "right": 562
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 660
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 661
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 644,
+          "right": 662
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 663,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 664
+        },
+        {
+          "type": "LIT",
+          "value": 0.7071067811865479
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 666,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 588,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 667,
+          "right": 668
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 669,
+          "right": 506
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 670
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 671,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 464,
+          "right": 561
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 579,
+          "right": 658
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 673,
+          "right": 674
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 464,
+          "right": 658
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 579,
+          "right": 561
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 676,
+          "right": 677
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 675,
+          "right": 678
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 679,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 463
+        },
+        {
+          "type": "LIT",
+          "value": 4.815051020408168
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 681,
+          "right": 682
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 463,
+          "right": 683
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 685,
+          "right": 606
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 467,
+          "right": 686
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 684,
+          "right": 687
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 682,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 606,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 689,
+          "right": 690
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 691,
+          "right": 531
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 688,
+          "right": 692
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 683,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 694,
+          "right": 694
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 686,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 696,
+          "right": 696
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 695,
+          "right": 697
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 698
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 699
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 700,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 701,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 701
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 703,
+          "right": 699
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 702,
+          "right": 704
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 693,
+          "right": 705
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 706
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 707,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 680
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 709
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 708,
+          "right": 710
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 711,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 712,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 680,
+          "right": 713
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 672,
+          "right": 714
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 672
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 716,
+          "right": 680
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 715,
+          "right": 717
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 665,
+          "right": 718
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 656,
+          "right": 719
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 659,
+          "right": 494
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 721
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 722
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 662,
+          "right": 723
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 724,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 725
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 658,
+          "right": 493
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 561,
+          "right": 658
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 727,
+          "right": 728
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 561,
+          "right": 493
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 659,
+          "right": 730
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 729,
+          "right": 731
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 732,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 726,
+          "right": 733
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 720,
+          "right": 734
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 723,
+          "right": 473
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 736,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 737
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 666,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 503,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 739,
+          "right": 740
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 741,
+          "right": 506
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 43,
+          "right": 742
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 743,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 658,
+          "right": 469
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 493,
+          "right": 464
+        },
+        {
+          "type": "BIN",
+          "op": "SUB",
+          "left": 745,
+          "right": 746
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 658,
+          "right": 464
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 493,
+          "right": 469
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 748,
+          "right": 749
+        },
+        {
+          "type": "BIN",
+          "op": "ATAN2",
+          "left": 747,
+          "right": 750
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 751,
+          "right": 28
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 753,
+          "right": 682
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 463,
+          "right": 754
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 518,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 756,
+          "right": 524
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 467,
+          "right": 757
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 755,
+          "right": 758
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 682,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 524,
+          "right": 467
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 760,
+          "right": 761
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 762,
+          "right": 531
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 759,
+          "right": 763
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 754,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 765,
+          "right": 765
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 757,
+          "right": 81
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 767,
+          "right": 767
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 766,
+          "right": 768
+        },
+        {
+          "type": "UNA",
+          "op": "SQRT",
+          "input": 769
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 80,
+          "right": 770
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 771,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 772,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 772
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 774,
+          "right": 770
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 773,
+          "right": 775
+        },
+        {
+          "type": "BIN",
+          "op": "DIV",
+          "left": 764,
+          "right": 776
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 63,
+          "right": 777
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 778,
+          "right": 0
+        },
+        {
+          "type": "UNA",
+          "op": "SIGN",
+          "input": 752
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 98,
+          "right": 780
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 779,
+          "right": 781
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 782,
+          "right": 98
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 783,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 752,
+          "right": 784
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 744,
+          "right": 785
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 744
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 787,
+          "right": 752
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 786,
+          "right": 788
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 738,
+          "right": 789
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 735,
+          "right": 790
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 791
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 792,
+          "right": 345
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 793,
+          "right": 0
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 795,
+          "right": 350
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 463,
+          "right": 350
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 796,
+          "right": 797
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 798
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 799,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 800,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 467
+        },
+        {
+          "type": "LIT",
+          "value": -19.550000000000004
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 802,
+          "right": 803
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 804
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 801,
+          "right": 805
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 801
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 798
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 808,
+          "right": 805
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 807,
+          "right": 809
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 806,
+          "right": 810
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 507
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 812,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 813,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 546
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 814,
+          "right": 815
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 814
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 507
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 818,
+          "right": 815
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 817,
+          "right": 819
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 816,
+          "right": 820
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 811,
+          "right": 821
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 467
+        },
+        {
+          "type": "LIT",
+          "value": -16.749999999999993
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 823,
+          "right": 824
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 467,
+          "right": 379
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 825,
+          "right": 826
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 827
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 828,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 829,
+          "right": 90
+        },
+        {
+          "type": "LIT",
+          "value": -40.54999999999999
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 463,
+          "right": 831
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 832
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 830,
+          "right": 833
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 830
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 827
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 836,
+          "right": 833
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 835,
+          "right": 837
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 834,
+          "right": 838
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 822,
+          "right": 839
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 591
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 841,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 842,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 627
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 843,
+          "right": 844
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 843
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 591
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 847,
+          "right": 844
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 846,
+          "right": 848
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 845,
+          "right": 849
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 840,
+          "right": 850
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 797,
+          "right": 796
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 852
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 853,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 854,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 467,
+          "right": 803
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 856
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 855,
+          "right": 857
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 855
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 852
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 860,
+          "right": 857
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 859,
+          "right": 861
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 858,
+          "right": 862
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 851,
+          "right": 863
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 670
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 865,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 866,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 706
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 867,
+          "right": 868
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 867
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 670
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 871,
+          "right": 868
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 870,
+          "right": 872
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 869,
+          "right": 873
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 864,
+          "right": 874
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 467,
+          "right": 824
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 823,
+          "right": 379
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 876,
+          "right": 877
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 878
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 879,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 880,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MUL",
+          "left": 348,
+          "right": 463
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 882,
+          "right": 831
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 883
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 881,
+          "right": 884
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 881
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 878
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 887,
+          "right": 884
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 886,
+          "right": 888
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 885,
+          "right": 889
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 875,
+          "right": 890
+        },
+        {
+          "type": "BIN",
+          "op": "COMPARE",
+          "left": 0,
+          "right": 742
+        },
+        {
+          "type": "BIN",
+          "op": "ADD",
+          "left": 892,
+          "right": 90
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 893,
+          "right": 90
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 777
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 894,
+          "right": 895
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 894
+        },
+        {
+          "type": "UNA",
+          "op": "ABS",
+          "input": 742
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 898,
+          "right": 895
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 897,
+          "right": 899
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 896,
+          "right": 900
+        },
+        {
+          "type": "BIN",
+          "op": "MIN",
+          "left": 891,
+          "right": 901
+        },
+        {
+          "type": "UNA",
+          "op": "NEG",
+          "input": 902
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 794,
+          "right": 903
+        },
+        {
+          "type": "UNA",
+          "op": "NOT",
+          "input": 794
+        },
+        {
+          "type": "BIN",
+          "op": "AND",
+          "left": 905,
+          "right": 902
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 904,
+          "right": 906
+        },
+        {
+          "type": "LIT",
+          "value": -8.8
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 907,
+          "right": 908
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 909,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 910,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 911,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 912,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 913,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 914,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 915,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 916,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 917,
+          "right": 19
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 918,
+          "right": 19
+        },
+        {
+          "type": "UNA",
+          "op": "NEG",
+          "input": 919
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 460,
+          "right": 920
+        },
+        {
+          "type": "LIT",
+          "value": -10.8
+        },
+        {
+          "type": "BIN",
+          "op": "MAX",
+          "left": 921,
+          "right": 922
+        },
+        {
+          "type": "BIN",
+          "op": "OR",
+          "left": 923,
+          "right": 19
+        }
+      ],
+      "root": 924
+    },
+    "v": 8.8
+  }
+}

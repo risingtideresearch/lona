@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vite/
+coverage/
+package-lock.json
+
+# Generated benchmark fixtures — large data files, not hand-formatted
+**/bench/fixtures/

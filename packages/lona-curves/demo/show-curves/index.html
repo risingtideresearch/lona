@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lona Curves Demo</title>
+    <link rel="stylesheet" href="/src/demo.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="menu-bar">
+        <div class="brand">
+          <p class="eyebrow">@packages/lona-curves</p>
+          <h1>Spline playground</h1>
+        </div>
+
+        <label class="menu-field">
+          <span>Example</span>
+          <select id="example-kind">
+            <option value="initial" selected>Default playground points</option>
+          </select>
+        </label>
+
+        <div class="menu-actions" aria-label="Example actions">
+          <button id="reset" type="button">Reset</button>
+          <button id="clear" type="button">Clear</button>
+          <button id="help" type="button" aria-haspopup="dialog">?</button>
+        </div>
+      </header>
+
+      <aside class="panel">
+        <div class="field-stack">
+          <label class="field">
+            <span>Spline</span>
+            <select id="spline-kind">
+              <option value="catmull-uniform">Catmull-Rom · uniform</option>
+              <option value="catmull-centripetal" selected>
+                Catmull-Rom · centripetal
+              </option>
+              <option value="catmull-chordal">Catmull-Rom · chordal</option>
+              <option value="catmull-straight">
+                Straight chords · Catmull-Rom tension 1
+              </option>
+              <option value="natural-uniform">Natural cubic · uniform</option>
+              <option value="natural-centripetal">
+                Natural cubic · centripetal
+              </option>
+              <option value="natural-chordal">Natural cubic · chordal</option>
+              <option value="hobby">Hobby spline</option>
+              <option value="kappa">κ-curves · 10 iter</option>
+              <option value="kappa-3">κ-curves · 3 iter</option>
+              <option value="yuksel">Yuksel C² spline</option>
+              <option value="jiang-chen">Jiang-Chen spline</option>
+              <option value="pchip">PCHIP</option>
+            </select>
+          </label>
+
+          <details class="backend-options">
+            <summary>
+              <span>
+                <span class="section-title">Backend</span>
+                <span class="section-subtitle"
+                  >Compiler, pruning and timings</span
+                >
+              </span>
+              <output id="perf-indicator" class="perf-indicator"
+                >JS codegen</output
+              >
+            </summary>
+
+            <div class="backend-body">
+              <label class="field">
+                <span>Compiler backend</span>
+                <select id="backend-kind">
+                  <option value="js-codegen">JS codegen</option>
+                  <option value="js-interp">JS interpreter</option>
+                  <option value="wasm-codegen">Wasm codegen</option>
+                  <option value="wasm-interp" selected>Wasm interpreter</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Branch pruning</span>
+                <select id="branch-pruning">
+                  <option value="off">Off</option>
+                  <option value="trace" selected>
+                    Trace selected branches
+                  </option>
+                  <option value="full-trace">Full trace with guards</option>
+                </select>
+              </label>
+
+              <dl class="perf-details">
+                <div>
+                  <dt>Compile</dt>
+                  <dd id="compile-time">—</dd>
+                </div>
+                <div>
+                  <dt>Evaluate</dt>
+                  <dd id="eval-time">—</dd>
+                </div>
+                <div>
+                  <dt>Pruning</dt>
+                  <dd id="pruning-status">Off</dd>
+                </div>
+              </dl>
+            </div>
+          </details>
+
+          <fieldset class="viz-options">
+            <legend>Visualization</legend>
+            <label>
+              <input id="show-tangents" type="checkbox" />
+              Tangents
+            </label>
+            <label>
+              <input id="show-curvature" type="checkbox" />
+              Curvature comb
+            </label>
+            <label>
+              <input id="small-points" type="checkbox" />
+              Small points
+            </label>
+          </fieldset>
+        </div>
+
+        <button id="delete" type="button">Delete selected</button>
+
+        <dl class="stats">
+          <div>
+            <dt>Points</dt>
+            <dd id="point-count">0</dd>
+          </div>
+          <div>
+            <dt>Selected</dt>
+            <dd id="selected-point">None</dd>
+          </div>
+        </dl>
+
+        <p id="message" class="message" role="status"></p>
+      </aside>
+
+      <section class="canvas-card" aria-label="Spline drawing area">
+        <canvas id="canvas"></canvas>
+      </section>
+    </main>
+
+    <dialog id="help-dialog" class="help-dialog">
+      <form method="dialog">
+        <header>
+          <h2>Controls</h2>
+          <button id="help-close" type="submit" aria-label="Close help">
+            ×
+          </button>
+        </header>
+        <ul>
+          <li>Double-click empty space to add a point.</li>
+          <li>Double-click near the spline to insert a point there.</li>
+          <li>Double-click a point to toggle its knuckle.</li>
+          <li>Shift-click a point to remove it.</li>
+          <li>Drag a point to move it.</li>
+          <li>Press Backspace/Delete to remove the selected point.</li>
+        </ul>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/demo.ts"></script>
+  </body>
+</html>
