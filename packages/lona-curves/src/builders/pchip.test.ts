@@ -1,5 +1,5 @@
-import { describe, test } from "vitest";
-import { asNum } from "lona";
+import { describe, expect, test } from "vitest";
+import { asNum, naiveEval, variableNum } from "lona";
 import { ex, val } from "../test-utils";
 import { buildPchip } from "../main";
 
@@ -52,5 +52,30 @@ describe("buildPchip", () => {
     ex(c.at(1).y).toBeCloseTo(5); // peak interpolates the symbolic height
     // monotone-to-the-peak: no overshoot above the peak height
     ex(c.at(0.5).y).toBeLessThanOrEqual(5 + 1e-6);
+  });
+
+  test("the knots are symbolic too — a station slides with a variable", () => {
+    // The peak station sits at x = 1 + t: one graph, re-solved per binding.
+    const t = variableNum("t");
+    const c = buildPchip([
+      station(0, 0),
+      { x: t.add(1), y: asNum(2) },
+      station(4, 0),
+    ]);
+    const yAt = (x: number, tv: number): number =>
+      naiveEval(c.at(x).y.n, new Map([["t", tv]]));
+    // the interpolated peak follows the knot as t moves
+    expect(yAt(1, 0)).toBeCloseTo(2);
+    expect(yAt(2, 1)).toBeCloseTo(2);
+    expect(yAt(3, 2)).toBeCloseTo(2);
+    // the fixed end stations still interpolate exactly at any binding
+    expect(yAt(0, 0)).toBeCloseTo(0);
+    expect(yAt(4, 1)).toBeCloseTo(0);
+    // shape-preserving on both sides of the moved peak: y stays in [0, 2]
+    for (let x = 0; x <= 4; x += 0.25) {
+      const y = yAt(x, 1);
+      expect(y).toBeGreaterThanOrEqual(-1e-6);
+      expect(y).toBeLessThanOrEqual(2 + 1e-6);
+    }
   });
 });
