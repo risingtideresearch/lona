@@ -25,7 +25,7 @@ export { destroyGpu } from "../gpu-util";
 const SHADER_SOURCE = /* wgsl */ `
 struct Params {
   numNodes: u32,
-  rootIndex: u32,
+  numRoots: u32,
   numPoints: u32,
   numVars: u32,
 }
@@ -38,6 +38,7 @@ struct Params {
 @group(0) @binding(5) var<storage, read> varData: array<f32>;
 @group(0) @binding(6) var<storage, read_write> vals: array<f32>;
 @group(0) @binding(7) var<storage, read_write> output: array<f32>;
+@group(0) @binding(8) var<storage, read> rootIndices: array<u32>;
 
 const DIV_ZERO: f32 = 1e38;
 
@@ -101,7 +102,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     vals[i * np + tid] = r;
   }
 
-  output[tid] = vals[params.rootIndex * np + tid];
+  for (var r = 0u; r < params.numRoots; r = r + 1u) {
+    output[tid * params.numRoots + r] = vals[rootIndices[r] * np + tid];
+  }
 }
 `;
 
@@ -161,6 +164,11 @@ function ensureEvalPipeline(device: GPUDevice) {
         binding: 7,
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" },
+      },
+      {
+        binding: 8,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" },
       },
     ],
   });
@@ -259,7 +267,8 @@ export interface GpuTapeEval {
    * @param varData Flat Float32Array with numPoints * varSlots.length entries,
    *   in varSlots order: [v0_p0, v1_p0, ..., v0_p1, v1_p1, ...]
    * @param numPoints Number of points in the batch
-   * @returns Float32Array with one result per point
+   * @returns Float32Array with numPoints * numRoots results, interleaved
+   *   per point: [r0_p0, r1_p0, ..., r0_p1, r1_p1, ...]
    */
   evalBatch(varData: Float32Array, numPoints: number): Promise<Float32Array>;
 
@@ -274,7 +283,10 @@ interface TapeGpuBuffers {
   argA: GPUBuffer;
   argB: GPUBuffer;
   literals: GPUBuffer;
+  rootIndices: GPUBuffer;
   numNodes: number;
+  numRoots: number;
+  /** First root index — used by the single-root grad path. */
   rootIndex: number;
   varSlots: VarName[];
 }
@@ -306,12 +318,18 @@ function uploadTapeBuffers(
     litF32.length > 0 ? (litF32.buffer as ArrayBuffer) : new ArrayBuffer(4), // WGSL requires non-zero buffer
   );
 
+  // Upload root indices as u32
+  const rootU32 = new Uint32Array(tape.rootIndices);
+  const rootBuf = createStorageBuffer(device, rootU32.buffer as ArrayBuffer);
+
   return {
     opcodes: opcBuf,
     argA: argABuf,
     argB: argBBuf,
     literals: litBuf,
+    rootIndices: rootBuf,
     numNodes: N,
+    numRoots: tape.rootIndices.length,
     rootIndex: tape.rootIndices[0],
     varSlots: tape.varSlots,
   };
@@ -332,7 +350,7 @@ function createGpuTapeEval(
   device: GPUDevice,
   tapeBuffers: TapeGpuBuffers,
 ): GpuTapeEval {
-  const { numNodes, rootIndex, varSlots } = tapeBuffers;
+  const { numNodes, numRoots, varSlots } = tapeBuffers;
 
   // Compute max batch size based on device limits
   const maxStorageBuf = device.limits.maxStorageBufferBindingSize;
@@ -383,12 +401,12 @@ function createGpuTapeEval(
     });
 
     outputBuf = device.createBuffer({
-      size: batchSize * 4,
+      size: batchSize * numRoots * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     stagingBuf = device.createBuffer({
-      size: batchSize * 4,
+      size: batchSize * numRoots * 4,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
@@ -403,6 +421,7 @@ function createGpuTapeEval(
         { binding: 5, resource: { buffer: varDataBuf } },
         { binding: 6, resource: { buffer: valuesBuf } },
         { binding: 7, resource: { buffer: outputBuf } },
+        { binding: 8, resource: { buffer: tapeBuffers.rootIndices } },
       ],
     });
   }
@@ -413,12 +432,12 @@ function createGpuTapeEval(
   ): Promise<Float32Array> {
     if (numPoints === 0) return new Float32Array(0);
     if (numPoints > maxBatch) {
-      const results = new Float32Array(numPoints);
+      const results = new Float32Array(numPoints * numRoots);
       for (let offset = 0; offset < numPoints; offset += maxBatch) {
         const end = Math.min(offset + maxBatch, numPoints);
         const batchData = varData.subarray(offset * numVars, end * numVars);
         const batchResults = await evalBatch(batchData, end - offset);
-        results.set(batchResults, offset);
+        results.set(batchResults, offset * numRoots);
       }
       return results;
     }
@@ -428,7 +447,7 @@ function createGpuTapeEval(
     // Upload params
     const paramsData = new Uint32Array([
       numNodes,
-      rootIndex,
+      numRoots,
       numPoints,
       numVars,
     ]);
@@ -453,7 +472,12 @@ function createGpuTapeEval(
 
     device.queue.submit([encoder.finish()]);
 
-    return readGpuBuffer(device, outputBuf!, stagingBuf!, numPoints * 4);
+    return readGpuBuffer(
+      device,
+      outputBuf!,
+      stagingBuf!,
+      numPoints * numRoots * 4,
+    );
   }
 
   function destroy() {
@@ -466,6 +490,7 @@ function createGpuTapeEval(
     tapeBuffers.argA.destroy();
     tapeBuffers.argB.destroy();
     tapeBuffers.literals.destroy();
+    tapeBuffers.rootIndices.destroy();
   }
 
   return { evalBatch, varSlots, destroy };
@@ -781,6 +806,7 @@ function createGpuTapeGradEval(
     tapeBuffers.argA.destroy();
     tapeBuffers.argB.destroy();
     tapeBuffers.literals.destroy();
+    tapeBuffers.rootIndices.destroy();
   }
 
   return { evalBatch, varSlots, numDiffVars, destroy };
