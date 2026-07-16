@@ -8,7 +8,6 @@
  * plain arrays for snapshot construction or typed arrays for in-place
  * live updates). This module owns the walk + per-kind dispatch.
  */
-import { visitFromLeaves } from "../../dag/traversal";
 import {
   type NumNode,
   type Derivative,
@@ -16,7 +15,7 @@ import {
   Variable,
   UnaryOp,
   BinaryOp,
-  childrenOfNumNode,
+  ForeignFn,
   KIND_LIT,
   KIND_VAR,
   KIND_AND,
@@ -85,27 +84,73 @@ export function emitOperandSubgraph(
   nodeToIndex: Map<NumNode, number>,
   opts: EmitOptions = {},
 ): EmitResult {
+  // A dedicated post-order walk can prune an already-emitted node before
+  // descending into it. This matters for multi-root tapes: each later root can
+  // share most of its graph with earlier roots. The generic DAG traversal used
+  // here previously allocated a fresh visited Set and walked those shared
+  // subgraphs again for every root.
+  //
+  // Keep node and phase in parallel arrays rather than allocating one stack
+  // entry object per visit. Children are pushed directly from node fields, so
+  // the hot walk also avoids `childrenOfNumNode()` array allocations.
+  const nodes: NumNode[] = [root];
+  const expanded: boolean[] = [false];
   let bail: EmitFailure | null = null;
 
-  visitFromLeaves(root, childrenOfNumNode, (n) => {
-    if (bail) return;
-    if (nodeToIndex.has(n)) return;
+  const pushIfNeeded = (node: NumNode): void => {
+    if (nodeToIndex.has(node)) return;
+    nodes.push(node);
+    expanded.push(false);
+  };
+
+  while (nodes.length > 0) {
+    const top = nodes.length - 1;
+    const n = nodes[top]!;
+
+    if (nodeToIndex.has(n)) {
+      nodes.pop();
+      expanded.pop();
+      continue;
+    }
 
     const kind = n.kind;
-    if (kind === KIND_FOREIGN) {
-      bail = "foreign";
-      return;
+    if (!expanded[top]) {
+      expanded[top] = true;
+
+      // Push in reverse evaluation order because the last item is visited
+      // first. This preserves the old leaves-first left-to-right tape order.
+      if (kind === KIND_FOREIGN) {
+        const inputs = (n as ForeignFn).inputs;
+        for (let i = inputs.length - 1; i >= 0; i--) pushIfNeeded(inputs[i]!);
+      } else if (kind === KIND_SELECT) {
+        const s = n as SelectOp;
+        pushIfNeeded(s.ifZero);
+        pushIfNeeded(s.ifNonZero);
+        pushIfNeeded(s.condition);
+      } else if (isUnaryKind(kind)) {
+        pushIfNeeded((n as UnaryOp).original);
+      } else if (isBinaryKind(kind)) {
+        const b = n as BinaryOp;
+        pushIfNeeded(b.right);
+        pushIfNeeded(b.left);
+      } else if (kind === KIND_DERIVATIVE) {
+        pushIfNeeded((n as Derivative).variable);
+      }
+      continue;
     }
 
     let idx: number;
-    if (kind === KIND_LIT) {
+    if (kind === KIND_FOREIGN) {
+      bail = "foreign";
+      break;
+    } else if (kind === KIND_LIT) {
       idx = emitter.emitLit((n as LiteralNum).value);
     } else if (kind === KIND_VAR) {
       idx = emitter.emitVar((n as Variable).name);
     } else if (kind === KIND_DERIVATIVE) {
       if (!opts.onDerivative) {
         bail = "derivative";
-        return;
+        break;
       }
       idx = opts.onDerivative(n as Derivative);
     } else if (isUnaryKind(kind)) {
@@ -127,10 +172,13 @@ export function emitOperandSubgraph(
       idx = emitter.emitBinary(KIND_OR, lhs, rhs);
     } else {
       bail = "foreign";
-      return;
+      break;
     }
+
     nodeToIndex.set(n, idx);
-  });
+    nodes.pop();
+    expanded.pop();
+  }
 
   if (bail) return { ok: false, reason: bail };
   return { ok: true, idx: nodeToIndex.get(root)! };
