@@ -20,8 +20,13 @@ import { compileGpuTapeFromTape } from "./routines/backends/gpu-interp/tape-eval
 import { compileGpuCodegenFromTape } from "./routines/backends/gpu-codegen/codegen";
 import { variableNum } from "../core/num";
 import { serializeNumDAG } from "../core/tree-serialization";
-import type { VarName } from "../core/tree";
-import { compileGradRoutine, type GradRoutine } from "./routines";
+import type { NumNode, VarName } from "../core/tree";
+import {
+  compileGradRoutine,
+  compileValueRoutine,
+  type GradRoutine,
+  type MultiValueRoutine,
+} from "./routines";
 import { compileForwardAutodiff } from "./routines/backends/js-interp/tape-eval";
 import { compileWasmForwardAutodiff } from "./routines/backends/wasm-interp/tape-eval";
 import { compileWasmGradFromTape } from "./routines/backends/wasm-codegen/codegen";
@@ -576,6 +581,186 @@ describe("named variables", () => {
 
     gpuEval!.destroy();
   });
+});
+
+// ---------------------------------------------------------------------------
+// gpu-interp multi-root value evaluation
+// ---------------------------------------------------------------------------
+
+describe("gpu-interp multi-root value evaluation", () => {
+  // Three roots sharing variables x, y, w:
+  //   rootA = x + w*y
+  //   rootB = x*x - y
+  //   rootC = w*x + y*y
+  const x = variableNum("x");
+  const y = variableNum("y");
+  const w = variableNum("w");
+  const rootA = x.add(w.mul(y));
+  const rootB = x.mul(x).sub(y);
+  const rootC = w.mul(x).add(y.mul(y));
+
+  const points = [
+    { x: 1, y: 2, w: 3 },
+    { x: 0, y: 5, w: -2 },
+    { x: 10, y: 0.5, w: 4 },
+    { x: -3, y: -1, w: 2 },
+    { x: 2.5, y: 7, w: -0.5 },
+  ];
+
+  /** CPU reference values for a single root across all sample points. */
+  function referenceForRoot(root: NumNode): number[] {
+    return points.map((p) =>
+      simpleEval(
+        root,
+        new Map<VarName, number>([
+          ["x", p.x],
+          ["y", p.y],
+          ["w", p.w],
+        ]),
+        true, // logDebug=true -> genericEval
+      ),
+    );
+  }
+
+  /** Point-major interleaved CPU reference: out[p * numRoots + r]. */
+  function referenceInterleaved(roots: NumNode[]): number[] {
+    const perRoot = roots.map(referenceForRoot);
+    const out: number[] = [];
+    for (let p = 0; p < points.length; p++) {
+      for (let r = 0; r < roots.length; r++) out.push(perRoot[r]![p]!);
+    }
+    return out;
+  }
+
+  /** Pack the sample points into a VarBatch keyed by variable name. */
+  function pointsVarBatch(): Record<string, number[]> {
+    return {
+      x: points.map((p) => p.x),
+      y: points.map((p) => p.y),
+      w: points.map((p) => p.w),
+    };
+  }
+
+  gpuTest(
+    "evalBatch: multi-root output is point-major interleaved (f32)",
+    async () => {
+      const roots = [rootA.n, rootB.n, rootC.n];
+      const routine = compileValueRoutine(roots, {
+        backend: "gpu-interp",
+      }) as MultiValueRoutine;
+      expect(routine).not.toBeNull();
+      expect(routine.shape).toBe("multi-value");
+      expect(routine.numRoots).toBe(3);
+
+      const results = await routine.evalBatch(pointsVarBatch(), points.length);
+      expect(results.length).toBe(points.length * routine.numRoots);
+
+      const reference = referenceInterleaved(roots);
+      const err = maxAbsError(results, reference);
+      expect(err).toBeLessThan(GPU_TOLERANCE);
+
+      routine.dispose?.();
+    },
+  );
+
+  gpuTest("evalAsync: one value per root for a single point", async () => {
+    const roots = [rootA.n, rootB.n, rootC.n];
+    const routine = compileValueRoutine(roots, {
+      backend: "gpu-interp",
+    }) as MultiValueRoutine;
+    expect(routine).not.toBeNull();
+
+    for (const p of points) {
+      const vars = new Map<VarName, number>([
+        ["x", p.x],
+        ["y", p.y],
+        ["w", p.w],
+      ]);
+      const result = await routine.evalAsync(vars);
+      expect(result.length).toBe(roots.length);
+
+      const reference = roots.map(
+        (root) => simpleEval(root, vars, true), // logDebug=true -> genericEval
+      );
+      for (let r = 0; r < roots.length; r++) {
+        expect(result[r]).toBeCloseTo(reference[r]!, 3);
+      }
+    }
+
+    routine.dispose?.();
+  });
+
+  gpuTest(
+    "duplicated roots: both output slots per point agree and are correct",
+    async () => {
+      // Same node twice, plus a distinct third root.
+      const roots = [rootA.n, rootA.n, rootB.n];
+      const tape = compileTape(roots)!;
+      expect(tape).not.toBeNull();
+
+      const gpuEval = await compileGpuTapeFromTape(tape);
+      expect(gpuEval).not.toBeNull();
+
+      const numVars = gpuEval!.varSlots.length;
+      const numPoints = points.length;
+      const varData = new Float32Array(numPoints * numVars);
+      for (let p = 0; p < numPoints; p++) {
+        for (let s = 0; s < numVars; s++) {
+          const name = gpuEval!.varSlots[s]! as string;
+          varData[p * numVars + s] =
+            (points[p] as unknown as Record<string, number>)[name] ?? 0;
+        }
+      }
+
+      const results = await gpuEval!.evalBatch(varData, numPoints);
+      expect(results.length).toBe(numPoints * roots.length);
+
+      const refA = referenceForRoot(rootA.n);
+      const refB = referenceForRoot(rootB.n);
+      for (let p = 0; p < numPoints; p++) {
+        const slot0 = results[p * roots.length + 0]!;
+        const slot1 = results[p * roots.length + 1]!;
+        const slot2 = results[p * roots.length + 2]!;
+        expect(slot1).toBe(slot0); // duplicated root -> identical f32 values
+        expect(Math.abs(slot0 - refA[p]!)).toBeLessThan(GPU_TOLERANCE);
+        expect(Math.abs(slot2 - refB[p]!)).toBeLessThan(GPU_TOLERANCE);
+      }
+
+      gpuEval!.destroy();
+    },
+  );
+
+  gpuTest(
+    "single-root regression: evalBatch still returns numPoints f32s",
+    async () => {
+      const roots = [rootA.n];
+      const tape = compileTape(roots)!;
+      expect(tape).not.toBeNull();
+
+      const gpuEval = await compileGpuTapeFromTape(tape);
+      expect(gpuEval).not.toBeNull();
+
+      const numVars = gpuEval!.varSlots.length;
+      const numPoints = points.length;
+      const varData = new Float32Array(numPoints * numVars);
+      for (let p = 0; p < numPoints; p++) {
+        for (let s = 0; s < numVars; s++) {
+          const name = gpuEval!.varSlots[s]! as string;
+          varData[p * numVars + s] =
+            (points[p] as unknown as Record<string, number>)[name] ?? 0;
+        }
+      }
+
+      const results = await gpuEval!.evalBatch(varData, numPoints);
+      expect(results.length).toBe(numPoints); // guards against layout change (numPoints * numRoots with numRoots=1)
+
+      const reference = referenceForRoot(rootA.n);
+      const err = maxAbsError(results, reference);
+      expect(err).toBeLessThan(GPU_TOLERANCE);
+
+      gpuEval!.destroy();
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
