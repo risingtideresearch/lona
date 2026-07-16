@@ -55,6 +55,13 @@ import {
  */
 const DEFAULT_MAX_CHUNK_BYTES = 3_000_000;
 
+/**
+ * Conservative cap for parameters plus declared locals in one function.
+ * V8 currently rejects functions at roughly 50,000 locals. Staying below
+ * that implementation limit also leaves room for emitter temporaries.
+ */
+const DEFAULT_MAX_FUNCTION_LOCALS = 40_000;
+
 /** Conservative upper-bound byte cost per tape op inside a function body. */
 function estimateOpBytes(op: number): number {
   switch (op) {
@@ -107,15 +114,41 @@ interface ChunkPlan {
 }
 
 /**
- * Split the tape into chunks whose estimated emitted body byte-count stays
- * under `maxBytes`. Each chunk is a contiguous tape range.
+ * Split the tape into contiguous chunks bounded by both estimated emitted
+ * bytes and function-local count. `localsPerNode` is greater than one for
+ * forward-mode autodiff, where every node stores a primal and derivatives.
  */
-function planChunks(tape: CompiledTape, maxBytes: number): ChunkPlan[] {
+function planChunks(
+  tape: CompiledTape,
+  maxBytes: number,
+  maxFunctionLocals: number,
+  localsPerNode = 1,
+): ChunkPlan[] {
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+    throw new Error(`Invalid WASM chunk byte limit: ${maxBytes}`);
+  }
+  if (!Number.isInteger(maxFunctionLocals) || maxFunctionLocals <= 0) {
+    throw new Error(`Invalid WASM function-local limit: ${maxFunctionLocals}`);
+  }
+  if (!Number.isInteger(localsPerNode) || localsPerNode <= 0) {
+    throw new Error(`Invalid WASM locals-per-node value: ${localsPerNode}`);
+  }
+
+  // Count parameters conservatively as locals. Engines differ in how their
+  // diagnostics describe this limit, but both consume local indices.
+  const availableLocals = maxFunctionLocals - tape.varSlots.length;
+  const maxNodes = Math.floor(availableLocals / localsPerNode);
+  if (maxNodes < 1) {
+    throw new Error(
+      `WASM codegen cannot fit one tape node in a function: ` +
+        `${tape.varSlots.length} parameters, ${localsPerNode} locals/node, ` +
+        `${maxFunctionLocals} total-local limit`,
+    );
+  }
+
   const chunks: ChunkPlan[] = [];
   const N = tape.opcodes.length;
-  if (N === 0) {
-    return [{ start: 0, end: 0 }];
-  }
+  if (N === 0) return [{ start: 0, end: 0 }];
 
   let chunkStart = 0;
   // Base per-chunk overhead: locals decl + end byte + function header.
@@ -128,7 +161,9 @@ function planChunks(tape: CompiledTape, maxBytes: number): ChunkPlan[] {
       estimateOpBytes(tape.opcodes[i]!) +
       ESCAPE_READ_FUDGE * 2 +
       ESCAPE_WRITE_FUDGE;
-    if (chunkBytes + est > maxBytes && i > chunkStart) {
+    const exceedsBytes = chunkBytes + est > maxBytes;
+    const exceedsLocals = i - chunkStart >= maxNodes;
+    if ((exceedsBytes || exceedsLocals) && i > chunkStart) {
       chunks.push({ start: chunkStart, end: i });
       chunkStart = i;
       chunkBytes = 32;
@@ -389,6 +424,7 @@ function collectGradExtraImports(tape: CompiledTape, used: Set<string>): void {
 function emitWasmModule(
   tape: CompiledTape,
   maxChunkBytes: number,
+  maxFunctionLocals: number,
 ): {
   bytes: Uint8Array;
   importNames: string[];
@@ -398,7 +434,7 @@ function emitWasmModule(
   const N = tape.opcodes.length;
 
   // --- Chunk + escape analysis ---
-  const chunks = planChunks(tape, maxChunkBytes);
+  const chunks = planChunks(tape, maxChunkBytes, maxFunctionLocals);
   const { escapeSlot, numEscapeSlots } = computeEscapes(tape, chunks);
   const rootEscapeSlot = N === 0 ? -1 : escapeSlot[tape.rootIndices[0]]!;
 
@@ -562,15 +598,38 @@ function emitWasmModule(
 // Instantiate and wrap
 // ---------------------------------------------------------------------------
 
-function emitAndWrap(tape: CompiledTape, maxChunkBytes: number): CompiledFn {
-  const { bytes, importNames } = emitWasmModule(tape, maxChunkBytes);
+function compileModuleBytes(
+  bytes: Uint8Array,
+  tape: CompiledTape,
+): WebAssembly.Module {
+  try {
+    return new WebAssembly.Module(bytes as unknown as BufferSource);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `WASM codegen failed for a ${tape.opcodes.length}-node tape with ` +
+        `${tape.varSlots.length} parameters: ${detail}`,
+    );
+  }
+}
+
+function emitAndWrap(
+  tape: CompiledTape,
+  maxChunkBytes: number,
+  maxFunctionLocals: number,
+): CompiledFn {
+  const { bytes, importNames } = emitWasmModule(
+    tape,
+    maxChunkBytes,
+    maxFunctionLocals,
+  );
 
   const env: Record<string, (...args: number[]) => number> = {};
   for (const name of importNames) {
     env[name] = ALL_IMPORTS[IMPORT_INDEX[name]!]!.jsFn;
   }
 
-  const module = new WebAssembly.Module(bytes as unknown as BufferSource);
+  const module = compileModuleBytes(bytes, tape);
   const instance = new WebAssembly.Instance(module, { env });
   const wasmEval = instance.exports.eval as (...args: number[]) => number;
 
@@ -594,6 +653,12 @@ export interface CompileWasmOptions {
    * Lower values exercise the multi-chunk path (useful in tests).
    */
   maxChunkBytes?: number;
+  /**
+   * Maximum parameters plus declared locals in an emitted function. Defaults
+   * to a conservative value below V8's current implementation limit.
+   * Lower values are useful for exercising local-count chunking in tests.
+   */
+  maxFunctionLocals?: number;
 }
 
 export function compileWasmFromTape(
@@ -601,14 +666,16 @@ export function compileWasmFromTape(
   options: CompileWasmOptions = {},
 ): CompiledMultiFn {
   const maxChunkBytes = options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES;
+  const maxFunctionLocals =
+    options.maxFunctionLocals ?? DEFAULT_MAX_FUNCTION_LOCALS;
   const numRoots = tape.rootIndices.length;
   if (numRoots === 1) {
     // Single-root path: the WASM entry returns f64 directly.
-    const fn = emitAndWrap(tape, maxChunkBytes);
+    const fn = emitAndWrap(tape, maxChunkBytes, maxFunctionLocals);
     return (vars, derivatives) => [fn(vars, derivatives)];
   }
   // Multi-root path: results written to WASM memory, read back as number[].
-  return emitMultiAndWrap(tape, maxChunkBytes);
+  return emitMultiAndWrap(tape, maxChunkBytes, maxFunctionLocals);
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +736,7 @@ function emitMultiEntryBody(
 function emitMultiWasmModule(
   tape: CompiledTape,
   maxChunkBytes: number,
+  maxFunctionLocals: number,
 ): {
   bytes: Uint8Array;
   importNames: string[];
@@ -681,7 +749,7 @@ function emitMultiWasmModule(
   const numVars = tape.varSlots.length;
 
   // --- Chunk + escape analysis ---
-  const chunks = planChunks(tape, maxChunkBytes);
+  const chunks = planChunks(tape, maxChunkBytes, maxFunctionLocals);
   const { escapeSlot, numEscapeSlots } = computeEscapes(tape, chunks);
 
   // Force all roots to have escape slots (they may already from computeEscapes
@@ -843,12 +911,14 @@ function emitMultiWasmModule(
 function emitMultiAndWrap(
   tape: CompiledTape,
   maxChunkBytes: number,
+  maxFunctionLocals: number,
 ): CompiledMultiFn {
   const rootIndices = tape.rootIndices;
   const numRoots = rootIndices.length;
   const { bytes, importNames, outputBaseOffset } = emitMultiWasmModule(
     tape,
     maxChunkBytes,
+    maxFunctionLocals,
   );
 
   const env: Record<string, (...args: number[]) => number> = {};
@@ -856,7 +926,7 @@ function emitMultiAndWrap(
     env[name] = ALL_IMPORTS[IMPORT_INDEX[name]!]!.jsFn;
   }
 
-  const module = new WebAssembly.Module(bytes as unknown as BufferSource);
+  const module = compileModuleBytes(bytes, tape);
   const instance = new WebAssembly.Instance(module, { env });
   const wasmEval = instance.exports.eval as (...args: number[]) => void;
   const wasmMem = instance.exports.mem as WebAssembly.Memory;
@@ -1365,6 +1435,7 @@ function emitGradAndWrap(
   tape: CompiledTape,
   diffVars: VarName[],
   maxChunkBytes: number,
+  maxFunctionLocals: number,
 ): WasmGradFn {
   const numDiff = diffVars.length;
   const stride = 1 + numDiff;
@@ -1381,8 +1452,14 @@ function emitGradAndWrap(
     }
   }
 
-  // Divide chunk budget by stride since each node uses stride locals.
-  const chunks = planChunks(tape, Math.floor(maxChunkBytes / stride));
+  // Derivative emission is approximately proportional to stride for both
+  // body bytes and locals.
+  const chunks = planChunks(
+    tape,
+    Math.floor(maxChunkBytes / stride),
+    maxFunctionLocals,
+    stride,
+  );
   const { escapeSlot, numEscapeSlots: _ } = computeEscapes(tape, chunks);
 
   // Force root to escape
@@ -1541,9 +1618,7 @@ function emitGradAndWrap(
   for (const name of importNames) {
     env[name] = ALL_IMPORTS[IMPORT_INDEX[name]!]!.jsFn;
   }
-  const module = new WebAssembly.Module(
-    mod.toBytes() as unknown as BufferSource,
-  );
+  const module = compileModuleBytes(mod.toBytes(), tape);
   const instance = new WebAssembly.Instance(module, { env });
   const wasmEval = instance.exports.eval as (...args: number[]) => void;
   const wasmMem = instance.exports.mem as WebAssembly.Memory;
@@ -1581,5 +1656,6 @@ export function compileWasmGradFromTape(
     tape,
     diffVars,
     options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES,
+    options.maxFunctionLocals ?? DEFAULT_MAX_FUNCTION_LOCALS,
   );
 }

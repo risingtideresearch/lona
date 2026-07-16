@@ -1,17 +1,10 @@
 /**
- * WebGPU codegen evaluator — generates a WGSL compute shader per DAG.
+ * WebGPU codegen evaluator.
  *
- * Instead of interpreting a tape on the GPU (gpu-tape-eval.ts), this
- * generates a WGSL shader where each DAG node becomes a direct WGSL
- * statement. The GPU compiler can then optimize across operations.
- *
- * Advantages over the tape interpreter:
- * - No values scratch buffer (huge memory savings for large DAGs)
- * - No switch dispatch overhead per node
- * - Only 3 bind group entries (vs 8 for tape)
- * - GPU compiler can fuse/reorder operations
- *
- * Trade-off: shader compilation is per-DAG (one-time cost).
+ * Large tapes are split into separately compiled shader pipelines. Values
+ * consumed by a later chunk are written to a storage buffer; values whose
+ * lifetime is contained in one chunk remain shader-local `let` bindings.
+ * All chunk dispatches are encoded in order and submitted together.
  *
  * Uses f32 — results have reduced precision vs CPU f64 evaluators.
  */
@@ -54,18 +47,13 @@ import {
 import { requireGpuDevice, readGpuBuffer } from "../gpu-util";
 
 const WORKGROUP_SIZE = 256;
-
-// ---------------------------------------------------------------------------
-// WGSL code generation
-// ---------------------------------------------------------------------------
+/** Conservative enough to keep Tint/Dawn away from monolithic shader stalls. */
+const DEFAULT_MAX_CHUNK_NODES = 4_000;
 
 function varRef(i: number): string {
   return `_${i}`;
 }
 
-// unaryWgsl and binaryWgsl operate on tape opcodes (defined below generateShaderFromTape)
-
-/** Opcode → WGSL unary expression */
 function unaryWgsl(op: number, operand: string): string | null {
   switch (op) {
     case OP_SQRT:
@@ -108,7 +96,6 @@ function unaryWgsl(op: number, operand: string): string | null {
   return null;
 }
 
-/** Opcode → WGSL binary expression */
 function binaryWgsl(op: number, left: string, right: string): string | null {
   switch (op) {
     case OP_ADD:
@@ -137,37 +124,116 @@ function binaryWgsl(op: number, left: string, right: string): string | null {
   return null;
 }
 
-function generateShaderFromTape(tape: CompiledTape): string {
-  const lines: string[] = [];
-  const numNodes = tape.opcodes.length;
+function formatF32(v: number): string {
+  if (!Number.isFinite(v)) {
+    if (v === Infinity) return "1e38";
+    if (v === -Infinity) return "-1e38";
+    return "0.0";
+  }
+  const s = v.toString();
+  return s.includes(".") || s.includes("e") || s.includes("E") ? s : `${s}.0`;
+}
 
-  for (let i = 0; i < numNodes; i++) {
+interface ChunkPlan {
+  start: number;
+  end: number;
+}
+
+interface GpuPlan {
+  chunks: ChunkPlan[];
+  escapeSlot: Int32Array;
+  numEscapeSlots: number;
+}
+
+/** Plan contiguous chunks and identify values read by a later chunk. */
+export function planGpuCodegenChunks(
+  tape: CompiledTape,
+  maxChunkNodes = DEFAULT_MAX_CHUNK_NODES,
+): GpuPlan {
+  if (!Number.isInteger(maxChunkNodes) || maxChunkNodes < 1) {
+    throw new Error(`Invalid GPU codegen chunk node limit: ${maxChunkNodes}`);
+  }
+
+  const N = tape.opcodes.length;
+  const chunks: ChunkPlan[] = [];
+  if (N === 0) chunks.push({ start: 0, end: 0 });
+  for (let start = 0; start < N; start += maxChunkNodes) {
+    chunks.push({ start, end: Math.min(start + maxChunkNodes, N) });
+  }
+
+  const lastReader = new Int32Array(N).fill(-1);
+  for (let i = 0; i < N; i++) {
+    const op = tape.opcodes[i]!;
+    if (op === OP_LIT || op === OP_VAR) continue;
+    lastReader[tape.argA[i]!] = i;
+    if (op >= OP_ADD) lastReader[tape.argB[i]!] = i;
+  }
+
+  const escapeSlot = new Int32Array(N).fill(-1);
+  let numEscapeSlots = 0;
+  for (const chunk of chunks) {
+    for (let i = chunk.start; i < chunk.end; i++) {
+      if (lastReader[i]! >= chunk.end) escapeSlot[i] = numEscapeSlots++;
+    }
+  }
+  return { chunks, escapeSlot, numEscapeSlots };
+}
+
+function generateChunkShader(
+  tape: CompiledTape,
+  chunk: ChunkPlan,
+  escapeSlot: Int32Array,
+): string {
+  const lines: string[] = [];
+  const rootsAtNode = new Map<number, number[]>();
+  for (let r = 0; r < tape.rootIndices.length; r++) {
+    const node = tape.rootIndices[r]!;
+    const positions = rootsAtNode.get(node) ?? [];
+    positions.push(r);
+    rootsAtNode.set(node, positions);
+  }
+
+  const ref = (node: number): string => {
+    if (node >= chunk.start && node < chunk.end) return varRef(node);
+    const slot = escapeSlot[node]!;
+    if (slot < 0) {
+      throw new Error(
+        `GPU codegen internal error: node ${node} is not available in chunk ` +
+          `[${chunk.start}, ${chunk.end})`,
+      );
+    }
+    return `scratch[${slot}u * params.numPoints + tid]`;
+  };
+
+  for (let i = chunk.start; i < chunk.end; i++) {
     const op = tape.opcodes[i]!;
     const a = tape.argA[i]!;
     const b = tape.argB[i]!;
-    const v = varRef(i);
+    let expression: string | null;
+    if (op === OP_LIT) expression = formatF32(tape.literals[a]!);
+    else if (op === OP_VAR)
+      expression = `varData[tid * params.numVars + ${a}u]`;
+    else expression = unaryWgsl(op, ref(a)) ?? binaryWgsl(op, ref(a), ref(b));
 
-    if (op === OP_LIT) {
-      lines.push(`  let ${v} = ${formatF32(tape.literals[a]!)};`);
-    } else if (op === OP_VAR) {
-      lines.push(`  let ${v} = varData[tid * numVarsu + ${a}u];`);
-    } else if (op === OP_DEBUG) {
-      lines.push(`  let ${v} = ${varRef(a)};`);
-    } else {
-      // Try unary first, then binary
-      const uExpr = unaryWgsl(op, varRef(a));
-      if (uExpr) {
-        lines.push(`  let ${v} = ${uExpr};`);
-      } else {
-        const bExpr = binaryWgsl(op, varRef(a), varRef(b));
-        if (bExpr) {
-          lines.push(`  let ${v} = ${bExpr};`);
-        }
-      }
+    if (expression === null) {
+      throw new Error(
+        `GPU codegen does not support tape opcode ${op} at node ${i}`,
+      );
+    }
+    lines.push(`  let ${varRef(i)} = ${expression};`);
+
+    const slot = escapeSlot[i]!;
+    if (slot >= 0) {
+      lines.push(
+        `  scratch[${slot}u * params.numPoints + tid] = ${varRef(i)};`,
+      );
+    }
+    for (const rootPosition of rootsAtNode.get(i) ?? []) {
+      lines.push(
+        `  output[tid * ${tape.rootIndices.length}u + ${rootPosition}u] = ${varRef(i)};`,
+      );
     }
   }
-
-  const body = lines.join("\n");
 
   return `struct Params {
   numPoints: u32,
@@ -176,62 +242,41 @@ function generateShaderFromTape(tape: CompiledTape): string {
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> varData: array<f32>;
-@group(0) @binding(2) var<storage, read_write> output: array<f32>;
+@group(0) @binding(2) var<storage, read_write> scratch: array<f32>;
+@group(0) @binding(3) var<storage, read_write> output: array<f32>;
 
 @compute @workgroup_size(${WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   let tid = gid.x;
   if (tid >= params.numPoints) { return; }
-
-  let numVarsu = params.numVars;
-
-${body}
-
-  output[tid] = ${varRef(tape.rootIndices[0])};
+${lines.join("\n")}
 }
 `;
 }
 
-/** Format a number as a WGSL f32 literal */
-function formatF32(v: number): string {
-  if (!Number.isFinite(v)) {
-    if (v === Infinity) return "1e38";
-    if (v === -Infinity) return "-1e38";
-    return "0.0"; // NaN → 0
-  }
-  const s = v.toString();
-  // Ensure it has a decimal point so WGSL treats it as float
-  if (s.includes(".") || s.includes("e") || s.includes("E")) return s;
-  return s + ".0";
-}
-
-// ---------------------------------------------------------------------------
-// GpuCodegenEval
-// ---------------------------------------------------------------------------
-
 export interface GpuCodegenEval {
   evalBatch(varData: Float32Array, numPoints: number): Promise<Float32Array>;
-  /** Time spent compiling the WGSL shader (ms) */
+  /** Total synchronous shader-module and pipeline creation time (ms). */
   shaderCompileMs: number;
-  /** All variable names in slot order */
   readonly varSlots: VarName[];
-  /** Number of output values per point (1 for single-root, N for multi-root) */
   readonly numRoots: number;
+  readonly numChunks: number;
+  readonly numEscapeSlots: number;
   destroy(): void;
+}
+
+export interface CompileGpuCodegenOptions {
+  /** Maximum tape nodes emitted into one shader module. */
+  maxChunkNodes?: number;
 }
 
 function createGpuCodegenEval(
   device: GPUDevice,
-  shaderSource: string,
-  varSlots: VarName[],
-  numRoots = 1,
+  tape: CompiledTape,
+  plan: GpuPlan,
 ): GpuCodegenEval {
-  const t0 = performance.now();
-  const shaderModule = device.createShaderModule({ code: shaderSource });
-  const shaderCompileMs = performance.now() - t0;
-
-  const numVars = varSlots.length;
-
+  const numVars = tape.varSlots.length;
+  const numRoots = tape.rootIndices.length;
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
@@ -249,58 +294,84 @@ function createGpuCodegenEval(
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" },
       },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "storage" },
+      },
     ],
   });
-
-  const pipeline = device.createComputePipeline({
-    layout: device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout],
-    }),
-    compute: { module: shaderModule, entryPoint: "main" },
+  const pipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [bindGroupLayout],
   });
+
+  const t0 = performance.now();
+  const pipelines = plan.chunks.map((chunk, chunkIndex) => {
+    try {
+      const code = generateChunkShader(tape, chunk, plan.escapeSlot);
+      const module = device.createShaderModule({ code });
+      return device.createComputePipeline({
+        layout: pipelineLayout,
+        compute: { module, entryPoint: "main" },
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `GPU codegen failed to compile chunk ${chunkIndex + 1}/${plan.chunks.length} ` +
+          `(nodes ${chunk.start}..${chunk.end - 1} of ${tape.opcodes.length}): ${detail}`,
+      );
+    }
+  });
+  const shaderCompileMs = performance.now() - t0;
 
   let allocatedBatch = 0;
   let paramsBuf: GPUBuffer | null = null;
   let varDataBuf: GPUBuffer | null = null;
+  let scratchBuf: GPUBuffer | null = null;
   let outputBuf: GPUBuffer | null = null;
   let stagingBuf: GPUBuffer | null = null;
   let bindGroup: GPUBindGroup | null = null;
 
-  function ensureBatchBuffers(batchSize: number) {
-    if (batchSize === allocatedBatch) return;
+  function destroyBuffers(): void {
     paramsBuf?.destroy();
     varDataBuf?.destroy();
+    scratchBuf?.destroy();
     outputBuf?.destroy();
     stagingBuf?.destroy();
+  }
 
+  function ensureBatchBuffers(batchSize: number): void {
+    if (batchSize === allocatedBatch) return;
+    destroyBuffers();
     allocatedBatch = batchSize;
 
     paramsBuf = device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
     varDataBuf = device.createBuffer({
       size: Math.max(batchSize * numVars * 4, 4),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-
+    scratchBuf = device.createBuffer({
+      size: Math.max(batchSize * plan.numEscapeSlots * 4, 4),
+      usage: GPUBufferUsage.STORAGE,
+    });
     outputBuf = device.createBuffer({
       size: batchSize * numRoots * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
-
     stagingBuf = device.createBuffer({
       size: batchSize * numRoots * 4,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-
     bindGroup = device.createBindGroup({
       layout: bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: paramsBuf } },
         { binding: 1, resource: { buffer: varDataBuf } },
-        { binding: 2, resource: { buffer: outputBuf } },
+        { binding: 2, resource: { buffer: scratchBuf } },
+        { binding: 3, resource: { buffer: outputBuf } },
       ],
     });
   }
@@ -309,45 +380,73 @@ function createGpuCodegenEval(
     varData: Float32Array,
     numPoints: number,
   ): Promise<Float32Array> {
+    if (!Number.isInteger(numPoints) || numPoints < 0) {
+      throw new Error(`Invalid GPU codegen batch size: ${numPoints}`);
+    }
+    if (varData.length !== numPoints * numVars) {
+      throw new Error(
+        `GPU codegen expected ${numPoints * numVars} input values, got ${varData.length}`,
+      );
+    }
     if (numPoints === 0) return new Float32Array(0);
 
-    const maxByBuffer = Math.floor(
-      device.limits.maxStorageBufferBindingSize / (Math.max(numVars, 1) * 4),
+    const limit = Math.min(
+      device.limits.maxStorageBufferBindingSize,
+      device.limits.maxBufferSize,
     );
-    const maxByDispatch =
-      device.limits.maxComputeWorkgroupsPerDimension * WORKGROUP_SIZE;
-    const maxPoints = Math.min(maxByBuffer, maxByDispatch);
+    const pointsFor = (valuesPerPoint: number): number =>
+      valuesPerPoint === 0
+        ? Number.MAX_SAFE_INTEGER
+        : Math.floor(limit / 4 / valuesPerPoint);
+    const maxPoints = Math.min(
+      pointsFor(numVars),
+      pointsFor(plan.numEscapeSlots),
+      pointsFor(numRoots),
+      device.limits.maxComputeWorkgroupsPerDimension * WORKGROUP_SIZE,
+    );
+    if (maxPoints < 1) {
+      throw new Error(
+        `GPU codegen scratch requirements exceed device limits: ` +
+          `${plan.numEscapeSlots} cross-chunk values, ${limit} byte binding limit`,
+      );
+    }
     if (numPoints > maxPoints) {
       const results = new Float32Array(numPoints * numRoots);
       for (let offset = 0; offset < numPoints; offset += maxPoints) {
         const end = Math.min(offset + maxPoints, numPoints);
-        const batchData = varData.subarray(offset * numVars, end * numVars);
-        const batchResults = await evalBatch(batchData, end - offset);
-        results.set(batchResults, offset * numRoots);
+        const part = await evalBatch(
+          varData.subarray(offset * numVars, end * numVars),
+          end - offset,
+        );
+        results.set(part, offset * numRoots);
       }
       return results;
     }
 
     ensureBatchBuffers(numPoints);
-
-    const paramsData = new Uint32Array([numPoints, numVars, 0, 0]);
-    device.queue.writeBuffer(paramsBuf!, 0, paramsData);
-
     device.queue.writeBuffer(
-      varDataBuf!,
+      paramsBuf!,
       0,
-      varData.buffer as ArrayBuffer,
-      varData.byteOffset,
-      varData.byteLength,
+      new Uint32Array([numPoints, numVars, 0, 0]),
     );
+    if (varData.byteLength > 0) {
+      device.queue.writeBuffer(
+        varDataBuf!,
+        0,
+        varData.buffer as ArrayBuffer,
+        varData.byteOffset,
+        varData.byteLength,
+      );
+    }
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup!);
-    pass.dispatchWorkgroups(Math.ceil(numPoints / WORKGROUP_SIZE));
+    for (const pipeline of pipelines) {
+      pass.setPipeline(pipeline);
+      pass.dispatchWorkgroups(Math.ceil(numPoints / WORKGROUP_SIZE));
+    }
     pass.end();
-
     device.queue.submit([encoder.finish()]);
 
     return readGpuBuffer(
@@ -358,96 +457,27 @@ function createGpuCodegenEval(
     );
   }
 
-  function destroy() {
-    paramsBuf?.destroy();
-    varDataBuf?.destroy();
-    outputBuf?.destroy();
-    stagingBuf?.destroy();
-  }
-
-  return { evalBatch, shaderCompileMs, varSlots, numRoots, destroy };
+  return {
+    evalBatch,
+    shaderCompileMs,
+    varSlots: tape.varSlots,
+    numRoots,
+    numChunks: plan.chunks.length,
+    numEscapeSlots: plan.numEscapeSlots,
+    destroy: destroyBuffers,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-export function compileGpuCodegenFromTape(tape: CompiledTape): GpuCodegenEval {
-  const device = requireGpuDevice();
-  const numRoots = tape.rootIndices.length;
-  if (numRoots === 1) {
-    const source = generateShaderFromTape(tape);
-    return createGpuCodegenEval(device, source, tape.varSlots);
+export function compileGpuCodegenFromTape(
+  tape: CompiledTape,
+  options: CompileGpuCodegenOptions = {},
+): GpuCodegenEval {
+  if (tape.rootIndices.length === 0) {
+    throw new Error("GPU codegen requires at least one tape root");
   }
-  const source = generateMultiShaderFromTape(tape);
-  return createGpuCodegenEval(device, source, tape.varSlots, numRoots);
-}
-
-// ---------------------------------------------------------------------------
-// Multi-root GPU codegen
-// ---------------------------------------------------------------------------
-
-function generateMultiShaderFromTape(tape: CompiledTape): string {
-  const rootIndices = tape.rootIndices;
-  const numRoots = rootIndices.length;
-  const lines: string[] = [];
-  const numNodes = tape.opcodes.length;
-
-  for (let i = 0; i < numNodes; i++) {
-    const op = tape.opcodes[i]!;
-    const a = tape.argA[i]!;
-    const b = tape.argB[i]!;
-    const v = varRef(i);
-
-    if (op === OP_LIT) {
-      lines.push(`  let ${v} = ${formatF32(tape.literals[a]!)};`);
-    } else if (op === OP_VAR) {
-      lines.push(`  let ${v} = varData[tid * numVarsu + ${a}u];`);
-    } else if (op === OP_DEBUG) {
-      lines.push(`  let ${v} = ${varRef(a)};`);
-    } else {
-      const uExpr = unaryWgsl(op, varRef(a));
-      if (uExpr) {
-        lines.push(`  let ${v} = ${uExpr};`);
-      } else {
-        const bExpr = binaryWgsl(op, varRef(a), varRef(b));
-        if (bExpr) {
-          lines.push(`  let ${v} = ${bExpr};`);
-        }
-      }
-    }
-  }
-
-  // Write all roots to output, interleaved per point.
-  const outputLines: string[] = [];
-  for (let i = 0; i < numRoots; i++) {
-    outputLines.push(
-      `  output[tid * ${numRoots}u + ${i}u] = ${varRef(rootIndices[i]!)};`,
-    );
-  }
-
-  const body = lines.join("\n");
-  const outputBody = outputLines.join("\n");
-
-  return `struct Params {
-  numPoints: u32,
-  numVars: u32,
-}
-
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> varData: array<f32>;
-@group(0) @binding(2) var<storage, read_write> output: array<f32>;
-
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let tid = gid.x;
-  if (tid >= params.numPoints) { return; }
-
-  let numVarsu = params.numVars;
-
-${body}
-
-${outputBody}
-}
-`;
+  const plan = planGpuCodegenChunks(
+    tape,
+    options.maxChunkNodes ?? DEFAULT_MAX_CHUNK_NODES,
+  );
+  return createGpuCodegenEval(requireGpuDevice(), tape, plan);
 }

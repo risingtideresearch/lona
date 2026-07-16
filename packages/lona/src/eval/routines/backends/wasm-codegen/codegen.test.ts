@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { compileWasmFromTape } from "./codegen";
+import { compileWasmFromTape, compileWasmGradFromTape } from "./codegen";
 import { compileTape, compileTapeFromSerialized } from "../../../tape";
 import { simpleEval } from "../../../eval-value";
 import { Num, variableNum } from "../../../../core/num";
@@ -235,6 +235,72 @@ describe("multi-chunk splitting", () => {
       expect(fn(vars)[0]).toBe(refFn(vars)[0]);
     }
   });
+
+  test("local-count limit splits independently of byte limit", () => {
+    let expr: Num = variableNum("x");
+    for (let i = 1; i <= 20; i++) expr = expr.add(i);
+    const tape = compileTape([expr.n])!;
+    const refFn = compileWasmFromTape(tape)!;
+    // One variable parameter leaves room for only two node locals.
+    const fn = compileWasmFromTape(tape, {
+      maxChunkBytes: 1_000_000,
+      maxFunctionLocals: 3,
+    });
+    const vars = new Map<VarName, number>([["x", 2]]);
+    expect(fn(vars)).toEqual(refFn(vars));
+  });
+
+  test("gradient local count includes the dual stride", () => {
+    let expr: Num = variableNum("x");
+    for (let i = 1; i <= 12; i++) expr = expr.mul(1.01).add(i);
+    const tape = compileTape([expr.n])!;
+    const ref = compileWasmGradFromTape(tape, ["x"]);
+    // One parameter plus two locals (primal + derivative) per node.
+    const chunked = compileWasmGradFromTape(tape, ["x"], {
+      maxChunkBytes: 1_000_000,
+      maxFunctionLocals: 5,
+    });
+    expect(chunked(new Map([["x", 3]]))).toEqual(ref(new Map([["x", 3]])));
+  });
+
+  test("reports an impossible local budget before invoking WebAssembly", () => {
+    const tape = compileTape([new Variable("x")])!;
+    expect(() => compileWasmFromTape(tape, { maxFunctionLocals: 1 })).toThrow(
+      /cannot fit one tape node.*1 parameters.*1 total-local limit/,
+    );
+  });
+});
+
+describe("large tape regression", () => {
+  test("default local budget compiles a dense large tape", () => {
+    // Keep the normal suite at 120k nodes; opt into the original 360k
+    // reproduction when validating scaling changes explicitly.
+    const iterations = process.env.LONA_TEST_SCALING === "1" ? 60_000 : 20_000;
+    const t = new Variable("t");
+    let root: Variable | UnaryOp | BinaryOp = t;
+    let expected = 0.3;
+    for (let i = 0; i < iterations; i++) {
+      const value = 1 + i * 1e-7;
+      const c = new LiteralNum(value);
+      root = new UnaryOp(
+        "COS",
+        new BinaryOp(
+          "MUL",
+          new UnaryOp(
+            "SIN",
+            new BinaryOp("ADD", new BinaryOp("MUL", root, t), c),
+          ),
+          c,
+        ),
+      );
+      expected = Math.cos(Math.sin(expected * 0.3 + value) * value);
+    }
+
+    const tape = compileTape([root])!;
+    expect(tape.opcodes.length).toBe(iterations * 6 + 1);
+    const fn = compileWasmFromTape(tape);
+    expect(fn(new Map([["t", 0.3]]))[0]).toBeCloseTo(expected, 14);
+  }, 30_000);
 });
 
 describe("parity with simpleEval", () => {
