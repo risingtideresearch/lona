@@ -302,12 +302,15 @@ function uploadTapeBuffers(
   for (let i = 0; i < N; i++) opcU32[i] = tape.opcodes[i]!;
   const opcBuf = createStorageBuffer(device, opcU32.buffer as ArrayBuffer);
 
-  // Upload argA as u32 (all values are non-negative)
-  const argAU32 = new Uint32Array(tape.argA.buffer.slice(0));
+  // Upload args as exact-length u32 arrays. Compiled tapes may be views over
+  // growable backing storage, so copying `.buffer` directly could include
+  // unused capacity beyond the tape's logical length.
+  const argAU32 = new Uint32Array(N);
+  argAU32.set(tape.argA);
   const argABuf = createStorageBuffer(device, argAU32.buffer as ArrayBuffer);
 
-  // Upload argB as u32
-  const argBU32 = new Uint32Array(tape.argB.buffer.slice(0));
+  const argBU32 = new Uint32Array(N);
+  argBU32.set(tape.argB);
   const argBBuf = createStorageBuffer(device, argBU32.buffer as ArrayBuffer);
 
   // Upload literals as f32 (downcast from f64)

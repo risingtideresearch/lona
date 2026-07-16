@@ -3,15 +3,15 @@
  * form) into a `CompiledTape`.
  *
  * The walker + per-kind dispatch live in `./emit.ts` (shared with
- * `LiveTape`). This file owns the snapshot-style storage strategy:
- * push to plain arrays during the walk, then convert to typed arrays
- * for the final `CompiledTape` result.
+ * `LiveTape`). Live NumNode DAGs are written directly into growable typed
+ * storage; serialized DAG compilation retains its simpler array-based path.
  */
-import { NumNode, KIND_LIT, type VarName } from "../../core/tree";
+import { NumNode, type VarName } from "../../core/tree";
 import type { SerializedNumDAG } from "../../core/tree-serialization";
 import type { CompiledTape, TapeAssertion } from "./compiled-tape";
 import type { TapeAssertionKind } from "./assertions";
-import { emitOperandSubgraph, type TapeEmitter } from "./emit";
+import { emitOperandSubgraph } from "./emit";
+import { GrowableTape } from "./growable-tape";
 import {
   OP_AND,
   OP_DEBUG,
@@ -53,61 +53,18 @@ export function compileTape(
 
   const guards = opts.guardPrelude ?? [];
 
-  const opcodes: number[] = [];
-  const argA: number[] = [];
-  const argB: number[] = [];
-  const literals: number[] = [];
-  const varSlots: VarName[] = [];
-  const varNameToSlot = new Map<VarName, number>();
+  const builder = new GrowableTape();
+  const { nodeToIndex, varSlots } = builder;
   const drvPendingSlots: { tapeIdx: number; baseName: VarName }[] = [];
   const assertions: TapeAssertion[] = [];
 
-  const emitter: TapeEmitter = {
-    emitLit(value) {
-      const idx = opcodes.length;
-      opcodes.push(KIND_LIT);
-      argA.push(literals.length);
-      argB.push(0);
-      literals.push(value);
-      return idx;
-    },
-    emitVar(name) {
-      const idx = opcodes.length;
-      let slot = varNameToSlot.get(name);
-      if (slot === undefined) {
-        slot = varSlots.length;
-        varSlots.push(name);
-        varNameToSlot.set(name, slot);
-      }
-      opcodes.push(OP_VAR);
-      argA.push(slot);
-      argB.push(0);
-      return idx;
-    },
-    emitUnary(op, operandIdx) {
-      const idx = opcodes.length;
-      opcodes.push(op);
-      argA.push(operandIdx);
-      argB.push(0);
-      return idx;
-    },
-    emitBinary(op, leftIdx, rightIdx) {
-      const idx = opcodes.length;
-      opcodes.push(op);
-      argA.push(leftIdx);
-      argB.push(rightIdx);
-      return idx;
-    },
-  };
-
-  const nodeToIndex = new Map<NumNode, number>();
   const emitSubgraph = (root: NumNode) =>
-    emitOperandSubgraph(root, emitter, nodeToIndex, {
+    emitOperandSubgraph(root, builder, nodeToIndex, {
       onDerivative: (node) => {
-        const idx = opcodes.length;
-        opcodes.push(OP_VAR);
-        argA.push(-1); // placeholder, filled in after the walk
-        argB.push(0);
+        // OP_VAR with a placeholder slot, fixed after regular variables have
+        // all been assigned. `emitUnary` has exactly the required op/a/zero
+        // layout and keeps the append inside typed storage.
+        const idx = builder.emitUnary(OP_VAR, -1);
         drvPendingSlots.push({ tapeIdx: idx, baseName: node.variable.name });
         return idx;
       },
@@ -118,11 +75,12 @@ export function compileTape(
     const result = emitSubgraph(guard.node);
     if (!result.ok) return null;
 
-    const tapeIndex = opcodes.length;
     const id = guard.id ?? i;
-    opcodes.push(guard.kind === "zero" ? OP_ASSERT_ZERO : OP_ASSERT_NONZERO);
-    argA.push(result.idx);
-    argB.push(id);
+    const tapeIndex = builder.emitBinary(
+      guard.kind === "zero" ? OP_ASSERT_ZERO : OP_ASSERT_NONZERO,
+      result.idx,
+      id,
+    );
     assertions.push({
       id,
       tapeIndex,
@@ -145,14 +103,17 @@ export function compileTape(
       varSlots.push(baseName);
       drvNameToSlot.set(baseName, slot);
     }
-    argA[tapeIdx] = slot;
+    builder.argA[tapeIdx] = slot;
   }
 
   return {
-    opcodes: new Uint8Array(opcodes),
-    argA: new Int32Array(argA),
-    argB: new Int32Array(argB),
-    literals: new Float64Array(literals),
+    // Exact-length views avoid one final full-tape copy. The backing buffers
+    // retain geometric spare capacity, but that is substantially smaller than
+    // keeping both the builder buffers and an exact snapshot alive here.
+    opcodes: builder.opcodes.subarray(0, builder.length),
+    argA: builder.argA.subarray(0, builder.length),
+    argB: builder.argB.subarray(0, builder.length),
+    literals: builder.literals.subarray(0, builder.numLiterals),
     varSlots,
     numVars,
     rootIndices: [
