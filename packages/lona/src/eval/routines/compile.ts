@@ -57,6 +57,12 @@ export type CompileOpts = {
   backend?: BackendName;
   /** Trace selects on first eval, compile a guarded specialized routine, retrace on guard failure. "trace" uses dynamic selected-path tracing; "full-trace" uses the old full-tape trace. */
   selectSpecialization?: SelectSpecializationMode;
+  /**
+   * Experimental instrumentation hook. Called at phase boundaries while the
+   * corresponding inputs/results are still live, so callers can sample memory.
+   * The hook must not mutate the roots or compiled tape.
+   */
+  diagnosticCheckpoint?: (phase: string) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -441,6 +447,31 @@ function compileTracingJacobianRoutine(
 // Value — default: wasm-codegen
 // ---------------------------------------------------------------------------
 
+/** Options for compiling an already-fixed tape (select tracing needs roots). */
+export type CompileValueTapeOpts = Pick<
+  CompileOpts,
+  "backend" | "diagnosticCheckpoint"
+>;
+
+/**
+ * Compile an existing immutable tape for value evaluation. This is the staged
+ * counterpart to `compileValueRoutine`, useful when a caller also needs tape
+ * metadata or wants to compile the same tape for more than one backend.
+ */
+export function compileValueRoutineFromTape(
+  tape: CompiledTape,
+  opts?: CompileValueTapeOpts,
+): ValueRoutine | MultiValueRoutine {
+  const name = opts?.backend ?? "wasm-codegen";
+  const b = requireBackend(name);
+  opts?.diagnosticCheckpoint?.(`lona:backend:${name}:start`);
+  const env = b.compileValue?.(tape);
+  if (!env)
+    throw new Error(`Backend '${name}' failed to compile value routine`);
+  opts?.diagnosticCheckpoint?.(`lona:backend:${name}:done`);
+  return wrapValue(env as KernelEnvelope<ValueKernel>);
+}
+
 export function compileValueRoutine(
   roots: NumNode[],
   opts?: CompileOpts,
@@ -451,13 +482,11 @@ export function compileValueRoutine(
     return compileTracingValueRoutine(roots, name, mode);
   }
 
+  opts?.diagnosticCheckpoint?.("lona:tape:start");
   const tape = compileTapeForRoots(roots);
   if (!tape) return null;
-  const b = requireBackend(name);
-  const env = b.compileValue?.(tape);
-  if (!env)
-    throw new Error(`Backend '${name}' failed to compile value routine`);
-  return wrapValue(env as KernelEnvelope<ValueKernel>);
+  opts?.diagnosticCheckpoint?.("lona:tape:done");
+  return compileValueRoutineFromTape(tape, opts);
 }
 
 // ---------------------------------------------------------------------------

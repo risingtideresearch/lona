@@ -15,8 +15,10 @@ export type { BackendName } from "./backend";
 
 export {
   compileValueRoutine,
+  compileValueRoutineFromTape,
   compileGradRoutine,
   type CompileOpts,
+  type CompileValueTapeOpts,
 } from "./compile";
 
 // Importing the backend-registry module registers all backends as a

@@ -41,6 +41,7 @@ export * from "./types";
 export * from "./eval/eval-value";
 export {
   compileValueRoutine,
+  compileValueRoutineFromTape,
   compileGradRoutine,
   initGpu,
   destroyGpu,
@@ -56,6 +57,7 @@ export {
   type AnyRoutine,
   type BackendName,
   type CompileOpts,
+  type CompileValueTapeOpts,
 } from "./eval/routines";
 export { compileTape, type CompiledTape } from "./eval/tape";
 export { treeEval } from "./eval/transforms/tree-eval";

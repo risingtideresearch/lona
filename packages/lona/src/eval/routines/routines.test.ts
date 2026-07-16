@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { variableNum } from "../../core/num";
 import { ifTruthyElse } from "../../api/ops";
+import { compileTape } from "../tape";
 
 import {
   compileValueRoutine,
+  compileValueRoutineFromTape,
   compileGradRoutine,
   type ValueRoutine,
   type MultiValueRoutine,
@@ -39,6 +41,21 @@ describe("compileValueRoutine — value shape", () => {
     const r = compileValueRoutine([node]);
     expect(r).not.toBeNull();
     expect(r!.shape).toBe("value");
+  });
+
+  test("an explicitly compiled tape can be passed to a backend", () => {
+    const tape = compileTape([node]);
+    expect(tape).not.toBeNull();
+    expect(tape!.opcodes.length).toBe(4);
+    const r = compileValueRoutineFromTape(tape!, { backend: "js-interp" });
+    expect(
+      r.eval(
+        new Map<string, number>([
+          ["x", 2],
+          ["y", 3],
+        ]),
+      ),
+    ).toBe(10);
   });
 
   test("evalAsync returns a Promise resolving to the value", async () => {
