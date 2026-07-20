@@ -46,11 +46,15 @@ import {
   Derivative,
   ForeignFn,
   KIND_LIT,
+  Call,
   LiteralNum,
   NEG_ONE_NODE,
   NumNode,
   ONE_NODE,
+  Param,
+  Project,
   SelectOp,
+  type Proc,
   TWO_NODE,
   UnaryOp,
   Variable,
@@ -340,6 +344,55 @@ export function binaryNode(
 
 export function debugNode(original: NumNode, debug: string): DebugNode {
   return NUM_TREE_CONTEXT.debugNode(original, debug);
+}
+
+/**
+ * A fresh proc parameter slot. Deliberately NOT hash-consed: each call
+ * allocates a distinct object, so two procs' param #0 never collide in the
+ * cons cache (identity is what keeps distinct procs' bodies distinct). It IS
+ * stamped in the sort-id space, so commutative canonicalization inside a proc
+ * body (`shouldSwap`, which reads `getSortId` on operands) orders params
+ * consistently — `p0.add(p1)` and `p1.add(p0)` canonicalize to the same node.
+ */
+export function paramNode(procTag: number, index: number): Param {
+  const node = new Param(procTag, index);
+  assignSortId(node);
+  return node;
+}
+
+// Monotonic proc-tag source, shared by `defineProc` and proc deserialization so
+// every proc definition (however constructed) gets a distinct tag.
+let nextProcTag = 1;
+export function newProcTag(): number {
+  return nextProcTag++;
+}
+
+/**
+ * A proc application node. Not hash-consed (v1 does not intern calls) but stamped
+ * in the sort-id space for consistency. `Call` is never itself a commutative
+ * operand, but its `Project`s are.
+ */
+export function callNode(proc: Proc, args: readonly NumNode[]): Call {
+  const node = new Call(proc, args);
+  assignSortId(node);
+  return node;
+}
+
+/**
+ * A projection (output `output`) of a call — the scalar node that flows in the
+ * graph. Stamped so commutative canonicalization orders it consistently against
+ * other operands. Validates the output index against the proc's output count.
+ */
+export function projectNode(call: Call, output: number): Project {
+  const outputs = call.proc.body.length;
+  if (!Number.isInteger(output) || output < 0 || output >= outputs) {
+    throw new Error(
+      `projectNode: output ${output} out of range [0, ${outputs}) for this call`,
+    );
+  }
+  const node = new Project(call, output);
+  assignSortId(node);
+  return node;
 }
 
 export function derivativeNode(variable: Variable): Derivative {

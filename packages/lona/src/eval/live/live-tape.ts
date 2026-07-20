@@ -29,12 +29,13 @@
  * Foreign and derivative nodes cannot live on the tape; `ensureInterned`
  * returns {@link INTERN_FAILED} for subgraphs containing them.
  */
-import { type NumNode, type VarName } from "../../core/tree";
+import { type Call, type NumNode, type VarName } from "../../core/tree";
 import {
   GrowableTape,
   INTERN_FAILED,
   TAPE_INITIAL_CAPACITY,
   emitOperandSubgraph,
+  type CallEmission,
   type TapeEmitter,
 } from "../tape";
 import { wasmInterpSweep } from "./sweep";
@@ -107,6 +108,11 @@ export class LiveTape implements TapeEmitter {
   private valueEpoch = new Int32Array(TAPE_INITIAL_CAPACITY);
   private slotEpoch = new Int32Array(TAPE_INITIAL_CAPACITY);
 
+  // Per-`Call` emission records, persistent for this LiveTape instance so that
+  // incrementally interning a second projection of an already-emitted call
+  // reuses the emitted body (aliasing its output slot) instead of re-emitting.
+  private readonly callEmissions = new Map<Call, CallEmission>();
+
   /** Bumped on every effective `setVariable`. Starts at 1 so the
    * Int32Array default of 0 means "stale". */
   private _epoch = 1;
@@ -162,7 +168,9 @@ export class LiveTape implements TapeEmitter {
   ensureInterned(node: NumNode): number {
     const existing = this.tape.nodeToIndex.get(node);
     if (existing !== undefined) return existing;
-    const result = emitOperandSubgraph(node, this, this.tape.nodeToIndex);
+    const result = emitOperandSubgraph(node, this, this.tape.nodeToIndex, {
+      callEmissions: this.callEmissions,
+    });
     return result.ok ? result.idx : INTERN_FAILED;
   }
 

@@ -64,6 +64,15 @@ export const KIND_DERIVATIVE = 60;
 export const KIND_FOREIGN = 61;
 export const KIND_SELECT = 62;
 
+// Proc / call / project (outside the opcode space). A `Proc` is a reusable,
+// closed subgraph (a pure function over `Param` slots); a `Call` is one
+// application of it to an argument tuple; a `Project` is the scalar node that
+// selects one of the call's outputs. Calls inline into the tape at compile
+// time (see eval/tape/emit.ts) — they never reach a backend as a distinct op.
+export const KIND_PARAM = 63;
+export const KIND_CALL = 64;
+export const KIND_PROJECT = 65;
+
 /** Range check: is `kind` any unary operator (10-29, including DEBUG)? */
 export function isUnaryKind(kind: number): boolean {
   return kind >= 10 && kind <= 29;
@@ -218,6 +227,67 @@ export class SelectOp extends NumNode {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Proc / Call / Project — reusable closed subgraphs (see core/proc.ts)
+// ---------------------------------------------------------------------------
+//
+// A `Proc` is a *definition* record, not a node that flows in the graph: a
+// body built once over `Param` slots, closed over params + literal constants
+// only (validated in `defineProc`). A `Call` applies a proc to an argument
+// tuple; a `Project` is the scalar `NumNode` that selects one output of a call.
+// This lets a repeated builder loop share one body instead of inlining N copies
+// into the DAG; the body is expanded back into the flat tape at compile time.
+
+/** A formal parameter slot of a proc body. Per-proc identity: two procs' param
+ *  #0 are DISTINCT objects (created fresh in `defineProc`) and are stamped in
+ *  the sort-id space so commutative canonicalization orders them consistently. */
+export class Param extends NumNode {
+  readonly operation = "PARAM";
+  readonly kind = KIND_PARAM;
+  constructor(
+    readonly procTag: number,
+    readonly index: number,
+  ) {
+    super();
+  }
+}
+
+/** A proc definition. `body` has one root per output; it is closed (references
+ *  only `params` and literal constants) and tape-legal (no foreign/derivative),
+ *  both enforced by `defineProc`. Shared by every `Call`, never inlined at the
+ *  DAG level. */
+export interface Proc {
+  readonly tag: number;
+  readonly arity: number;
+  readonly params: readonly Param[];
+  readonly body: readonly NumNode[];
+}
+
+/** One application of `proc` to `args`. NOT a scalar value — it is projected.
+ *  Shared across all outputs so a multi-output proc's body emits once. */
+export class Call extends NumNode {
+  readonly operation = "CALL";
+  readonly kind = KIND_CALL;
+  constructor(
+    readonly proc: Proc,
+    readonly args: readonly NumNode[],
+  ) {
+    super();
+  }
+}
+
+/** Output `output` of a call — the scalar `NumNode` that flows in the DAG. */
+export class Project extends NumNode {
+  readonly operation = "PROJECT";
+  readonly kind = KIND_PROJECT;
+  constructor(
+    readonly call: Call,
+    readonly output: number,
+  ) {
+    super();
+  }
+}
+
 // Sentinel literal singletons. These must be constructed with `new` rather
 // than `litNode`: when this module loads the cons module may not yet be
 // initialized because of the circular import (tree ↔ tree-cons).
@@ -256,6 +326,15 @@ export function childrenOfNumNode(node: NumNode): NumNode[] {
   if (kind === KIND_DERIVATIVE) {
     return [(node as Derivative).variable];
   }
+  if (kind === KIND_PROJECT) {
+    // A projection depends on its call; the proc body is shared via `Proc`,
+    // not the call graph, and is accounted separately (see countReachable...).
+    return [(node as Project).call];
+  }
+  if (kind === KIND_CALL) {
+    return [...(node as Call).args];
+  }
+  // KIND_PARAM has no children — it is bound to an argument at compile time.
   return [];
 }
 
@@ -275,6 +354,17 @@ export function numNodeLabel(node: NumNode): string {
   }
   if (kind === KIND_FOREIGN) return "FOREIGN";
   if (kind === KIND_SELECT) return "SELECT";
+  // Identity labels (tag-based). A *structural* fingerprint of a call must fold
+  // in the proc body's own fingerprint over positional params — see tree-walks.
+  if (kind === KIND_PARAM) {
+    const p = node as Param;
+    return `PARAM:${p.procTag}#${p.index}`;
+  }
+  if (kind === KIND_CALL) return `CALL:${(node as Call).proc.tag}`;
+  if (kind === KIND_PROJECT) {
+    const pr = node as Project;
+    return `PROJECT:${pr.call.proc.tag}#${pr.output}`;
+  }
   return "UNKNOWN";
 }
 

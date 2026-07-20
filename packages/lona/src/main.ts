@@ -5,17 +5,24 @@ export {
   Derivative,
   DebugNode,
   SelectOp,
+  Param,
+  Call,
+  Project,
   asLiteralValue,
   childrenOfNumNode,
   numNodeLabel,
   isUnaryKind,
   isBinaryKind,
   KIND_SELECT,
+  KIND_PARAM,
+  KIND_CALL,
+  KIND_PROJECT,
   allVariables,
   ZERO_NODE,
   ONE_NODE,
   TWO_NODE,
   NEG_ONE_NODE,
+  type Proc,
 } from "./core/tree";
 export {
   varNode,
@@ -24,7 +31,14 @@ export {
   unaryNode,
   selectNode,
   foreignFnNode,
+  paramNode,
 } from "./core/tree-cons";
+export { callNode, projectNode } from "./core/tree-cons";
+export { defineProc, callProc, mapReduce } from "./core/proc";
+export {
+  inlineProcs,
+  countReachableIncludingProcBodies,
+} from "./core/tree-walks";
 export { replaceVariable, partialDerivative } from "./core/tree-walks";
 export * from "./core/tree-serialization";
 export * from "./api/interfaces";

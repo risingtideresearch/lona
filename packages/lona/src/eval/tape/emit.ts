@@ -24,6 +24,10 @@ import {
   KIND_NOT,
   KIND_OR,
   KIND_SELECT,
+  KIND_CALL,
+  KIND_PROJECT,
+  Call,
+  Project,
   SelectOp,
   isBinaryKind,
   isUnaryKind,
@@ -46,12 +50,30 @@ export interface TapeEmitter {
   emitBinary(op: number, leftIdx: number, rightIdx: number): number;
 }
 
-/** Reason an emit walk gave up partway through. */
-export type EmitFailure = "foreign" | "derivative";
+/** Reason an emit walk gave up partway through. `proc` means a `Call`/`Project`
+ *  was reached but the caller supplied no `callEmissions` cache (procs are
+ *  only lowered by `compileTape`; other emitters reject them). */
+export type EmitFailure = "foreign" | "derivative" | "proc";
 
 /** Outcome of {@link emitOperandSubgraph}. */
 export type EmitResult =
   { ok: true; idx: number } | { ok: false; reason: EmitFailure };
+
+/**
+ * Per-`Call` emission record, owned by one compilation (a single `compileTape`
+ * call, or a persistent `LiveTape` instance). NOT stored on the `Call` object —
+ * the same graph can be compiled into multiple tapes with different slots.
+ *
+ * A call is emitted eagerly and completely on first contact: its body is emitted
+ * once and every output root's tape slot is recorded here. Each `Project` is
+ * then a pure alias to `outputSlots[output]` — no tape op is appended for it.
+ * The body-node → slot map is *not* retained (it is scratch during emission);
+ * because all outputs emit on first contact, later projections need only slots.
+ */
+export interface CallEmission {
+  readonly outputSlots: readonly number[];
+  readonly ok: EmitResult;
+}
 
 /**
  * Optional handler for `KIND_DERIVATIVE` nodes. `compileTape` provides
@@ -64,6 +86,14 @@ export type EmitResult =
  */
 export interface EmitOptions {
   onDerivative?: (node: Derivative) => number;
+  /**
+   * Per-compilation `Call` → {@link CallEmission} cache. Required to lower
+   * `Call`/`Project` nodes; when absent, a proc-bearing graph bails with
+   * `"proc"`. `compileTape` supplies a fresh map per compilation; a `LiveTape`
+   * that supports procs supplies a persistent per-instance map so incremental
+   * interning of a second projection reuses the emitted body.
+   */
+  callEmissions?: Map<Call, CallEmission>;
 }
 
 /**
@@ -97,8 +127,16 @@ export function emitOperandSubgraph(
   const expanded: boolean[] = [false];
   let bail: EmitFailure | null = null;
 
+  // A `Call` has no scalar tape slot, so its "already processed" state lives in
+  // the `callEmissions` cache, not `nodeToIndex`. Everything else resolves by
+  // its assigned slot.
+  const isResolved = (node: NumNode): boolean =>
+    node.kind === KIND_CALL
+      ? (opts.callEmissions?.has(node as Call) ?? false)
+      : nodeToIndex.has(node);
+
   const pushIfNeeded = (node: NumNode): void => {
-    if (nodeToIndex.has(node)) return;
+    if (isResolved(node)) return;
     nodes.push(node);
     expanded.push(false);
   };
@@ -107,7 +145,7 @@ export function emitOperandSubgraph(
     const top = nodes.length - 1;
     const n = nodes[top]!;
 
-    if (nodeToIndex.has(n)) {
+    if (isResolved(n)) {
       nodes.pop();
       expanded.pop();
       continue;
@@ -135,7 +173,29 @@ export function emitOperandSubgraph(
         pushIfNeeded(b.left);
       } else if (kind === KIND_DERIVATIVE) {
         pushIfNeeded((n as Derivative).variable);
+      } else if (kind === KIND_PROJECT) {
+        pushIfNeeded((n as Project).call);
+      } else if (kind === KIND_CALL) {
+        const args = (n as Call).args;
+        for (let i = args.length - 1; i >= 0; i--) pushIfNeeded(args[i]!);
       }
+      continue;
+    }
+
+    // A Call has no scalar slot: emit its body once (shared across projections)
+    // and record output slots in the cache. Popped without touching nodeToIndex.
+    if (kind === KIND_CALL) {
+      if (!opts.callEmissions) {
+        bail = "proc";
+        break;
+      }
+      const emission = emitCallBody(n as Call, emitter, nodeToIndex, opts);
+      if (!emission.ok.ok) {
+        bail = emission.ok.reason;
+        break;
+      }
+      nodes.pop();
+      expanded.pop();
       continue;
     }
 
@@ -143,6 +203,27 @@ export function emitOperandSubgraph(
     if (kind === KIND_FOREIGN) {
       bail = "foreign";
       break;
+    } else if (kind === KIND_PROJECT) {
+      // A projection is a pure alias to one of its call's output slots — no op
+      // is appended. The call was emitted just above (it is a pushed child).
+      const pr = n as Project;
+      const emission = opts.callEmissions?.get(pr.call);
+      if (!emission) {
+        bail = "proc";
+        break;
+      }
+      if (!emission.ok.ok) {
+        bail = emission.ok.reason;
+        break;
+      }
+      const slot = emission.outputSlots[pr.output];
+      if (slot === undefined) {
+        // Malformed projection (output out of range) — reject rather than store
+        // an undefined slot as a tape index.
+        bail = "proc";
+        break;
+      }
+      idx = slot;
     } else if (kind === KIND_LIT) {
       idx = emitter.emitLit((n as LiteralNum).value);
     } else if (kind === KIND_VAR) {
@@ -182,4 +263,70 @@ export function emitOperandSubgraph(
 
   if (bail) return { ok: false, reason: bail };
   return { ok: true, idx: nodeToIndex.get(root)! };
+}
+
+/**
+ * The index map used while emitting one call's body. Params are pre-bound to the
+ * caller's argument slots (plain local entries). Literals route to the shared
+ * `outer` map so a body constant emits ONE tape slot across all calls of the
+ * proc (a `LiteralNum` has global identity; its tape slot is value-only). All
+ * other body nodes stay local, so they re-emit per call — which is the intended
+ * unroll, since different calls bind different arguments.
+ */
+class BodyScope extends Map<NumNode, number> {
+  constructor(private readonly outer: Map<NumNode, number>) {
+    super();
+  }
+  override has(n: NumNode): boolean {
+    return super.has(n) || (n.kind === KIND_LIT && this.outer.has(n));
+  }
+  override get(n: NumNode): number | undefined {
+    const local = super.get(n);
+    if (local !== undefined) return local;
+    return n.kind === KIND_LIT ? this.outer.get(n) : undefined;
+  }
+  override set(n: NumNode, idx: number): this {
+    if (n.kind === KIND_LIT) this.outer.set(n, idx);
+    else super.set(n, idx);
+    return this;
+  }
+}
+
+/**
+ * Emit a `Call`'s body once, recording every output's tape slot. Idempotent:
+ * returns the cached {@link CallEmission} if the call was already emitted (this
+ * is what lets a second `Project`, or a later `LiveTape.ensureInterned`, reuse
+ * the body). The call's arguments must already be emitted in `outer`.
+ */
+function emitCallBody(
+  call: Call,
+  emitter: TapeEmitter,
+  outer: Map<NumNode, number>,
+  opts: EmitOptions,
+): CallEmission {
+  const cache = opts.callEmissions!;
+  const cached = cache.get(call);
+  if (cached) return cached;
+
+  const scope = new BodyScope(outer);
+  const params = call.proc.params;
+  for (let i = 0; i < params.length; i++) {
+    // Args are children of the Call, already emitted into `outer`.
+    scope.set(params[i]!, outer.get(call.args[i]!)!);
+  }
+
+  const outputSlots: number[] = [];
+  let ok: EmitResult = { ok: true, idx: -1 };
+  for (const root of call.proc.body) {
+    const res = emitOperandSubgraph(root, emitter, scope, opts);
+    if (!res.ok) {
+      ok = res;
+      break;
+    }
+    outputSlots.push(res.idx);
+  }
+
+  const emission: CallEmission = { outputSlots, ok };
+  cache.set(call, emission);
+  return emission;
 }

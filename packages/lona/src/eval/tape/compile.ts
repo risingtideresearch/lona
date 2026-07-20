@@ -6,11 +6,11 @@
  * `LiveTape`). Live NumNode DAGs are written directly into growable typed
  * storage; serialized DAG compilation retains its simpler array-based path.
  */
-import { NumNode, type VarName } from "../../core/tree";
+import { Call, NumNode, type VarName } from "../../core/tree";
 import type { SerializedNumDAG } from "../../core/tree-serialization";
 import type { CompiledTape, TapeAssertion } from "./compiled-tape";
 import type { TapeAssertionKind } from "./assertions";
-import { emitOperandSubgraph } from "./emit";
+import { emitOperandSubgraph, type CallEmission } from "./emit";
 import { GrowableTape } from "./growable-tape";
 import {
   OP_AND,
@@ -58,8 +58,13 @@ export function compileTape(
   const drvPendingSlots: { tapeIdx: number; baseName: VarName }[] = [];
   const assertions: TapeAssertion[] = [];
 
+  // One Call → emission cache for the whole compilation: a Call referenced by
+  // several roots (or via several projections) emits its body exactly once.
+  const callEmissions = new Map<Call, CallEmission>();
+
   const emitSubgraph = (root: NumNode) =>
     emitOperandSubgraph(root, builder, nodeToIndex, {
+      callEmissions,
       onDerivative: (node) => {
         // OP_VAR with a placeholder slot, fixed after regular variables have
         // all been assigned. `emitUnary` has exactly the required op/a/zero
