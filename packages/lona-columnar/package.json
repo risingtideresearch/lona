@@ -1,18 +1,14 @@
 {
-  "name": "lona",
+  "name": "lona-columnar",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "main": "dist/lona.js",
+  "main": "dist/lona-columnar.js",
   "types": "dist/main.d.ts",
   "exports": {
     ".": {
       "types": "./dist/main.d.ts",
-      "import": "./dist/lona.js"
-    },
-    "./internal": {
-      "types": "./dist/internal.d.ts",
-      "import": "./dist/internal.js"
+      "import": "./dist/lona-columnar.js"
     }
   },
   "files": [
@@ -22,8 +18,6 @@
   "scripts": {
     "clean": "node ../../scripts/clean.mjs dist",
     "test": "vitest run",
-    "test:integration": "vitest run src/eval/real-world-eval.integration.ts --maxWorkers=1",
-    "test:gpu": "LONA_TEST_GPU=1 npm run test:integration",
     "test-watch": "vitest",
     "dev": "vite",
     "watch": "npm run clean && vite build --watch --mode debug",
@@ -36,8 +30,7 @@
     "formatcheck": "prettier --ignore-path ../../.prettierignore --check .",
     "check": "npm run typecheck && npm run lint && npm run test && npm run formatcheck"
   },
-  "dependencies": {
-    "decimal.js": "^10.5.0",
-    "webgpu": "^0.4.0"
+  "peerDependencies": {
+    "lona": "1.0.0"
   }
 }

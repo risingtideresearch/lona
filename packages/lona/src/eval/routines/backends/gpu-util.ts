@@ -49,6 +49,10 @@ export async function initGpu(): Promise<GPUDevice | null> {
 /**
  * Return the cached GPU device or throw. Call `initGpu()` first.
  */
+export function isGpuAvailable(): boolean {
+  return gpuDevice !== null;
+}
+
 export function requireGpuDevice(): GPUDevice {
   if (!initDone) {
     throw new Error(
@@ -83,8 +87,28 @@ export async function destroyGpu() {
 }
 
 // ---------------------------------------------------------------------------
-// GPU readback helper
+// GPU buffers and readback helpers
 // ---------------------------------------------------------------------------
+
+export interface DeviceBufferSlice {
+  readonly buffer: GPUBuffer;
+  readonly offset: number;
+  readonly byteLength: number;
+}
+
+/** Map a staging buffer after its copy command has already been submitted. */
+export async function mapGpuReadbackBuffer(
+  stagingBuf: GPUBuffer,
+  numBytes: number,
+): Promise<Float32Array> {
+  if (numBytes === 0) return new Float32Array(0);
+  await stagingBuf.mapAsync(GPUMapMode.READ);
+  const result = new Float32Array(
+    stagingBuf.getMappedRange(0, numBytes).slice(0),
+  );
+  stagingBuf.unmap();
+  return result;
+}
 
 export async function readGpuBuffer(
   device: GPUDevice,
@@ -96,8 +120,5 @@ export async function readGpuBuffer(
   encoder.copyBufferToBuffer(outputBuf, 0, stagingBuf, 0, numBytes);
   device.queue.submit([encoder.finish()]);
 
-  await stagingBuf.mapAsync(GPUMapMode.READ);
-  const result = new Float32Array(stagingBuf.getMappedRange().slice(0));
-  stagingBuf.unmap();
-  return result;
+  return mapGpuReadbackBuffer(stagingBuf, numBytes);
 }

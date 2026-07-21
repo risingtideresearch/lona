@@ -49,6 +49,7 @@ function compileOpts(opts: BuildRoutineOptions): CompileOpts {
   return {
     backend: opts.backend,
     selectSpecialization: opts.selectSpecialization,
+    diagnosticCheckpoint: opts.diagnosticCheckpoint,
   };
 }
 
