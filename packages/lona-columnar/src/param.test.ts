@@ -9,7 +9,7 @@ import {
 import { binaryNode, varNode } from "lona/internal";
 import { compileTape } from "lona/internal";
 
-describe("structured parameter variables", () => {
+describe("columnar parameter variables", () => {
   test("uses unique labelled symbols as variable names", () => {
     const name = Symbol("column.map.param.0");
     const a = varNode(name);

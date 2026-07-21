@@ -3,7 +3,7 @@ import { Num, asNum, variableNum } from "lona";
 import type { NumStruct } from "lona";
 import { derivativeNode, foreignFnNode, litNode, varNode } from "lona/internal";
 import { Variable } from "lona/internal";
-import { column, getColumnDefinition, getStructuredDefinition } from "./api";
+import { column, getColumnDefinition, getColumnarDefinition } from "./api";
 
 class Pair implements NumStruct<Pair> {
   constructor(
@@ -33,7 +33,7 @@ function lastStage<T extends { readonly kind: string }>(
   return stage;
 }
 
-describe("structured column Phase 1 builder", () => {
+describe("columnar column Phase 1 builder", () => {
   test("builds a homogeneous scalar source stage", () => {
     const x = variableNum("x");
     const y = variableNum("y");
@@ -269,13 +269,13 @@ describe("structured column Phase 1 builder", () => {
     ).toThrow(/associative: true/);
   });
 
-  test("toNums binds every row and external value into a terminal stage", () => {
+  test("output binds every row and external value into a terminal stage", () => {
     const density = variableNum("density");
     const points = column([
       new Pair(variableNum("x0"), variableNum("y0")),
       new Pair(variableNum("x1"), variableNum("y1")),
     ]);
-    const output = points.toNums({
+    const output = points.output({
       using: { density },
       build: ([a, b], { using }) => [
         a!.x.add(b!.x).mul(using.density),
@@ -283,15 +283,15 @@ describe("structured column Phase 1 builder", () => {
       ],
       placement: "cpu",
     });
-    const definition = getStructuredDefinition(output);
+    const definition = getColumnarDefinition(output);
     const stage = lastStage(definition.stages);
 
     expect(definition.stages.map(({ kind }) => kind)).toEqual([
       "source",
-      "to-nums",
+      "output",
     ]);
 
-    if (stage.kind !== "to-nums") throw new Error("expected to-nums");
+    if (stage.kind !== "output") throw new Error("expected output");
     expect(stage.params).toHaveLength(4);
     expect(stage.inputs.map((input) => input.binding.kind)).toEqual([
       "materialized",
@@ -309,13 +309,34 @@ describe("structured column Phase 1 builder", () => {
     expect(definition.outputStage).toBe(stage.id);
   });
 
-  test("allows literal captures and rejects empty toNums output", () => {
+  test("adopts a column returned by then and allows more stages", () => {
+    const expanded = column([asNum(1), asNum(2)])
+      .then(([a, b]) =>
+        column([a!.add(b!), b!.mul(2)]).map((value) => value.add(1)),
+      )
+      .map((value) => value.mul(3));
+    const definition = getColumnDefinition(expanded);
+
+    expect(expanded.length).toBe(2);
+    expect(definition.stages.map(({ kind }) => kind)).toEqual([
+      "source",
+      "then",
+      "map",
+      "map",
+    ]);
+    const bridge = definition.stages[1]!;
+    if (bridge.kind !== "then") throw new Error("expected then");
+    expect(bridge.roots).toHaveLength(2);
+    expect(bridge.resultShape.collection).toBe("array");
+  });
+
+  test("allows literal captures and rejects empty output", () => {
     const literal = asNum(3);
     expect(() =>
       column([asNum(1)]).map((value) => value.add(literal)),
     ).not.toThrow();
 
-    expect(() => column([asNum(1)]).toNums(() => [] as readonly Num[])).toThrow(
+    expect(() => column([asNum(1)]).output(() => [] as readonly Num[])).toThrow(
       /produced no values/,
     );
   });

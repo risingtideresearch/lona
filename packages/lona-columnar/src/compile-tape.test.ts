@@ -3,20 +3,20 @@ import { Num } from "lona";
 import { Variable } from "lona/internal";
 import { varNode } from "lona/internal";
 import { compileValueRoutineFromTape } from "lona/internal";
-import { compileStructuredTape } from "./compile-tape";
+import { compileColumnarTape } from "./compile-tape";
 
 function param(label: string, index: number): Variable {
   return varNode(Symbol(`${label}.param.${index}`));
 }
 
-describe("compileStructuredTape", () => {
+describe("compileColumnarTape", () => {
   test("uses the parameter Variables directly without rebuilding the Num DAG", () => {
     const a = param("direct-binding", 0);
     const b = param("direct-binding", 1);
     const root = new Num(a).mul(2).add(new Num(b));
     const originalRoot = root.n;
 
-    const compiled = compileStructuredTape(
+    const compiled = compileColumnarTape(
       [root.n],
       [
         { param: a, binding: { kind: "row", component: 0 } },
@@ -62,14 +62,14 @@ describe("compileStructuredTape", () => {
     const root = new Num(a).add(new Num(b));
 
     expect(() =>
-      compileStructuredTape(
+      compileColumnarTape(
         [root.n],
         [{ param: a, binding: { kind: "row", component: 0 } }],
       ),
     ).toThrow(/undeclared input variable/);
 
     expect(() =>
-      compileStructuredTape(
+      compileColumnarTape(
         [root.n],
         [
           { param: a, binding: { kind: "row", component: 0 } },
@@ -82,7 +82,7 @@ describe("compileStructuredTape", () => {
   test("preserves unused positional inputs in metadata", () => {
     const used = param("unused-binding", 0);
     const unused = param("unused-binding", 1);
-    const compiled = compileStructuredTape(
+    const compiled = compileColumnarTape(
       [new Num(used).square().n],
       [
         { param: used, binding: { kind: "row", component: 0 } },

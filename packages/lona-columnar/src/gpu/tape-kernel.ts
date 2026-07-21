@@ -6,7 +6,7 @@ import { requireGpuDevice } from "lona/internal";
 const WORKGROUP_SIZE = 256;
 const MAX_SHADER_NODES = 4_000;
 
-export interface CompiledStructuredGpuTapeKernel {
+export interface CompiledColumnarGpuTapeKernel {
   readonly dispatchesPerPass: 1;
   encode(
     encoder: GPUCommandEncoder,
@@ -18,7 +18,7 @@ export interface CompiledStructuredGpuTapeKernel {
   destroy(): void;
 }
 
-interface StructuredGpuTapeLayout {
+interface ColumnarGpuTapeLayout {
   readonly inputWidth: number;
   readonly outputWidth: number;
   readonly uniformWidth: number;
@@ -27,17 +27,17 @@ interface StructuredGpuTapeLayout {
   readonly reductionWidth?: number;
 }
 
-function shader(tape: CompiledTape, layout: StructuredGpuTapeLayout): string {
+function shader(tape: CompiledTape, layout: ColumnarGpuTapeLayout): string {
   if (tape.opcodes.length > MAX_SHADER_NODES) {
     throw new Error(
-      `structured GPU kernel has ${tape.opcodes.length} nodes; the single-shader limit is ${MAX_SHADER_NODES}`,
+      `columnar GPU kernel has ${tape.opcodes.length} nodes; the single-shader limit is ${MAX_SHADER_NODES}`,
     );
   }
   const emitted = emitTapeWgsl(tape, (slot) => {
     const expression = layout.variables[slot];
     if (expression === undefined) {
       throw new Error(
-        `structured GPU kernel has no binding for variable ${slot}`,
+        `columnar GPU kernel has no binding for variable ${slot}`,
       );
     }
     return expression;
@@ -80,19 +80,19 @@ ${outputs}
 `;
 }
 
-/** Compile one structured map or pairwise-reduction pass. */
-export function compileStructuredGpuTapeKernel(
+/** Compile one columnar map or pairwise-reduction pass. */
+export function compileColumnarGpuTapeKernel(
   tape: CompiledTape,
-  layout: StructuredGpuTapeLayout,
-): CompiledStructuredGpuTapeKernel {
+  layout: ColumnarGpuTapeLayout,
+): CompiledColumnarGpuTapeKernel {
   if (tape.rootIndices.length !== layout.outputWidth) {
     throw new Error(
-      `structured GPU kernel has ${tape.rootIndices.length} outputs; expected ${layout.outputWidth}`,
+      `columnar GPU kernel has ${tape.rootIndices.length} outputs; expected ${layout.outputWidth}`,
     );
   }
   if (layout.variables.length !== tape.varSlots.length) {
     throw new Error(
-      `structured GPU kernel expected ${tape.varSlots.length} variable bindings, got ${layout.variables.length}`,
+      `columnar GPU kernel expected ${tape.varSlots.length} variable bindings, got ${layout.variables.length}`,
     );
   }
   const device = requireGpuDevice();
@@ -148,7 +148,7 @@ export function compileStructuredGpuTapeKernel(
     dispatchesPerPass: 1,
     encode(encoder, input, uniforms, output, count): void {
       if (!Number.isInteger(count) || count < 0) {
-        throw new Error(`invalid structured GPU kernel count: ${count}`);
+        throw new Error(`invalid columnar GPU kernel count: ${count}`);
       }
       if (count === 0) return;
       const outputCount = layout.reductionWidth ? Math.ceil(count / 2) : count;
@@ -156,12 +156,12 @@ export function compileStructuredGpuTapeKernel(
       const expectedOutputBytes = outputCount * layout.outputWidth * 4;
       if (input.byteLength < expectedInputBytes) {
         throw new Error(
-          `structured GPU kernel input has ${input.byteLength} bytes; expected ${expectedInputBytes}`,
+          `columnar GPU kernel input has ${input.byteLength} bytes; expected ${expectedInputBytes}`,
         );
       }
       if (output.byteLength < expectedOutputBytes) {
         throw new Error(
-          `structured GPU kernel output has ${output.byteLength} bytes; expected ${expectedOutputBytes}`,
+          `columnar GPU kernel output has ${output.byteLength} bytes; expected ${expectedOutputBytes}`,
         );
       }
       if (
@@ -169,7 +169,7 @@ export function compileStructuredGpuTapeKernel(
         (!uniforms || uniforms.byteLength < layout.uniformWidth * 4)
       ) {
         throw new Error(
-          `structured GPU kernel requires ${layout.uniformWidth * 4} uniform bytes`,
+          `columnar GPU kernel requires ${layout.uniformWidth * 4} uniform bytes`,
         );
       }
       if (
@@ -177,14 +177,14 @@ export function compileStructuredGpuTapeKernel(
         expectedOutputBytes > device.limits.maxStorageBufferBindingSize
       ) {
         throw new Error(
-          `structured GPU kernel exceeds the ${device.limits.maxStorageBufferBindingSize} byte storage binding limit`,
+          `columnar GPU kernel exceeds the ${device.limits.maxStorageBufferBindingSize} byte storage binding limit`,
         );
       }
       const dispatchLimit =
         device.limits.maxComputeWorkgroupsPerDimension * WORKGROUP_SIZE;
       if (outputCount > dispatchLimit) {
         throw new Error(
-          `structured GPU kernel output count ${outputCount} exceeds the dispatch limit ${dispatchLimit}`,
+          `columnar GPU kernel output count ${outputCount} exceeds the dispatch limit ${dispatchLimit}`,
         );
       }
 

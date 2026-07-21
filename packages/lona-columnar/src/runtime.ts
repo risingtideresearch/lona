@@ -17,9 +17,9 @@ import type {
   ReduceStage,
   ResultShape,
   ScalarBindings,
-  StructuredDefinition,
-  StructuredStage,
-  ToNumsStage,
+  ColumnarDefinition,
+  ColumnarStage,
+  WholeColumnStage,
 } from "./ir";
 import type {
   ConcreteResult,
@@ -27,10 +27,10 @@ import type {
   ExecutionTarget,
   GpuBackendName,
   NumBuildResult,
-  StructuredCompileOptions,
-  StructuredEvaluationStats,
-  StructuredRoutine,
-  StructuredStageInfo,
+  ColumnarRoutineOptions,
+  ColumnarEvaluationStats,
+  ColumnarRoutine,
+  ColumnarStageInfo,
   StagePlacement,
 } from "./types";
 import { compileCpuKernel, type CompiledCpuKernel } from "./cpu/compile-kernel";
@@ -45,7 +45,7 @@ import {
 } from "./gpu/reduce-kernel";
 
 interface CompiledStage {
-  readonly stage: StructuredStage;
+  readonly stage: ColumnarStage;
   readonly placement?: ExecutionTarget;
   readonly backend?: BackendName;
   readonly cpuKernel?: CompiledCpuKernel;
@@ -82,13 +82,13 @@ function preference<T>(
         ? [...configured]
         : [configured as T];
   if (values.length === 0) {
-    throw new Error(`structured ${label} preference must not be empty`);
+    throw new Error(`columnar ${label} preference must not be empty`);
   }
   return Object.freeze(values);
 }
 
 function configuredCpuBackends(
-  opts: StructuredCompileOptions,
+  opts: ColumnarRoutineOptions,
 ): readonly CpuBackendName[] {
   const backends = preference(
     opts.backends?.cpu,
@@ -97,14 +97,14 @@ function configuredCpuBackends(
   );
   for (const backend of backends) {
     if (!CPU_BACKENDS.has(backend)) {
-      throw new Error(`unsupported structured CPU backend '${backend}'`);
+      throw new Error(`unsupported columnar CPU backend '${backend}'`);
     }
   }
   return backends;
 }
 
 function configuredGpuBackends(
-  opts: StructuredCompileOptions,
+  opts: ColumnarRoutineOptions,
 ): readonly GpuBackendName[] {
   const backends = preference(
     opts.backends?.gpu,
@@ -113,22 +113,22 @@ function configuredGpuBackends(
   );
   for (const backend of backends) {
     if (!GPU_BACKENDS.has(backend)) {
-      throw new Error(`unsupported structured GPU backend '${backend}'`);
+      throw new Error(`unsupported columnar GPU backend '${backend}'`);
     }
   }
   return backends;
 }
 
-type ExecutableStage = MapStage | ReduceStage | ToNumsStage;
-type PlacementKey = "map" | "reduce" | "toNums";
+type ExecutableStage = MapStage | ReduceStage | WholeColumnStage;
+type PlacementKey = "map" | "reduce" | "then" | "output";
 
 function placementKey(stage: ExecutableStage): PlacementKey {
-  return stage.kind === "to-nums" ? "toNums" : stage.kind;
+  return stage.kind;
 }
 
 function effectiveStagePlacement(
   stage: ExecutableStage,
-  opts: StructuredCompileOptions,
+  opts: ColumnarRoutineOptions,
 ): StagePlacement {
   if (stage.requestedPlacement) return stage.requestedPlacement;
   const configured = opts.placement;
@@ -139,12 +139,12 @@ function effectiveStagePlacement(
 function stageTargets(
   stage: ExecutableStage,
   placement: StagePlacement,
-  opts: StructuredCompileOptions,
+  opts: ColumnarRoutineOptions,
 ): readonly ExecutionTarget[] {
   if (placement !== "auto") return [placement];
   const configured = opts.auto?.targets;
   const defaults: readonly ExecutionTarget[] =
-    stage.kind === "to-nums" ? ["cpu"] : ["gpu", "cpu"];
+    stage.kind === "then" || stage.kind === "output" ? ["cpu"] : ["gpu", "cpu"];
   const targets = preference(
     configured?.[placementKey(stage)] ?? configured?.default,
     defaults,
@@ -152,7 +152,7 @@ function stageTargets(
   );
   for (const target of targets) {
     if (target !== "cpu" && target !== "gpu") {
-      throw new Error(`unsupported structured execution target '${target}'`);
+      throw new Error(`unsupported columnar execution target '${target}'`);
     }
   }
   return targets;
@@ -160,14 +160,14 @@ function stageTargets(
 
 function gpuUnsupportedReason(stage: ExecutableStage): string | null {
   if (stage.kind === "map") return null;
-  if (stage.kind === "to-nums") return "toNums stages execute on CPU";
+  if (stage.kind !== "reduce") return "whole-column stages execute on CPU";
   if (!stage.associative || stage.order !== "tree") {
     return "GPU reductions require associative: true and tree order";
   }
   return null;
 }
 
-function gatherScalarRoots(definition: StructuredDefinition): NumNode[] {
+function gatherScalarRoots(definition: ColumnarDefinition): NumNode[] {
   const roots: NumNode[] = [];
   const seen = new Set<NumNode>();
   const add = (items: readonly NumNode[]): void => {
@@ -186,7 +186,7 @@ function gatherScalarRoots(definition: StructuredDefinition): NumNode[] {
     } else if (stage.kind === "reduce") {
       add(stage.initial);
       add(stage.using.roots);
-    } else if (stage.kind === "to-nums") {
+    } else {
       add(stage.using.roots);
     }
   }
@@ -201,7 +201,7 @@ function valuesForRoots(
     const value = values.get(root);
     if (value === undefined && !values.has(root)) {
       if (root.kind === KIND_LIT) return (root as LiteralNum).value;
-      throw new Error("structured scalar root was not evaluated");
+      throw new Error("columnar scalar root was not evaluated");
     }
     return value!;
   });
@@ -226,12 +226,12 @@ function checkedKernelEval(
   kernel: CompiledCpuKernel,
   inputs: readonly number[],
   expectedWidth: number,
-  stage: StructuredStage,
+  stage: ColumnarStage,
 ): number[] {
   const result = kernel.eval(inputs);
   if (result.length !== expectedWidth) {
     throw new Error(
-      `structured stage ${stage.id} (${stage.kind}) returned ${result.length} values; expected ${expectedWidth}`,
+      `columnar stage ${stage.id} (${stage.kind}) returned ${result.length} values; expected ${expectedWidth}`,
     );
   }
   return result;
@@ -354,8 +354,8 @@ function evalReduce(
   return level[0] ?? initial;
 }
 
-function evalToNums(
-  stage: ToNumsStage,
+function evalWholeColumn(
+  stage: WholeColumnStage,
   kernel: CompiledCpuKernel,
   source: readonly number[],
   scalarValues: ReadonlyMap<NumNode, number>,
@@ -369,24 +369,22 @@ function decodeResult(shape: ResultShape, flat: readonly number[]): unknown {
   for (const valueShape of shape.values) {
     const components = flat.slice(offset, offset + valueShape.width);
     if (components.length !== valueShape.width) {
-      throw new Error(
-        "structured toNums output is shorter than its result shape",
-      );
+      throw new Error("columnar output is shorter than its result shape");
     }
     decoded.push(valueShape.kind === "num" ? components[0]! : components);
     offset += valueShape.width;
   }
   if (offset !== flat.length) {
     throw new Error(
-      `structured toNums output has ${flat.length} scalars; expected ${offset}`,
+      `columnar output has ${flat.length} scalars; expected ${offset}`,
     );
   }
   return shape.collection === "single" ? decoded[0] : decoded;
 }
 
 function compileStages(
-  definition: StructuredDefinition,
-  opts: StructuredCompileOptions,
+  definition: ColumnarDefinition,
+  opts: ColumnarRoutineOptions,
   cpuBackends: readonly CpuBackendName[],
   gpuBackends: readonly GpuBackendName[],
   checkpoint?: (phase: string) => void,
@@ -410,7 +408,7 @@ function compileStages(
     backend: BackendName,
   ): CompiledStage => {
     checkpoint?.(
-      `lona:structured:${stage.kind}:${stage.id}:${target}:${backend}:compile`,
+      `lona:columnar:${stage.kind}:${stage.id}:${target}:${backend}:compile`,
     );
     if (target === "gpu") {
       if (stage.kind === "map") {
@@ -442,7 +440,7 @@ function compileStages(
           uniformGroup: uniformGroup(stage.using.roots),
         };
       }
-      throw new Error("toNums stages execute on CPU");
+      throw new Error("whole-column stages execute on CPU");
     }
 
     const cpuBackend = backend as CpuBackendName;
@@ -501,7 +499,7 @@ function compileStages(
               error instanceof Error ? error.message : String(error);
             failures.push(`${target}/${backend}: ${message}`);
             checkpoint?.(
-              `lona:structured:${stage.kind}:${stage.id}:auto:fallback:${target}:${backend}`,
+              `lona:columnar:${stage.kind}:${stage.id}:auto:fallback:${target}:${backend}`,
             );
           }
         }
@@ -510,12 +508,12 @@ function compileStages(
 
       if (!selected) {
         throw new Error(
-          `structured stage ${stage.id} (${stage.kind}) could not satisfy placement '${placement}': ${failures.join("; ")}`,
+          `columnar stage ${stage.id} (${stage.kind}) could not satisfy placement '${placement}': ${failures.join("; ")}`,
         );
       }
       if (placement === "auto" && selected.placement !== targets[0]) {
         checkpoint?.(
-          `lona:structured:${stage.kind}:${stage.id}:auto:selected:${selected.placement}:${selected.backend}`,
+          `lona:columnar:${stage.kind}:${stage.id}:auto:selected:${selected.placement}:${selected.backend}`,
         );
       }
       compiled.push(selected);
@@ -531,13 +529,13 @@ function compileStages(
   }
 }
 
-export function compileStructuredRoutine<R extends NumBuildResult>(
-  definition: StructuredDefinition,
-  opts: StructuredCompileOptions = {},
-): StructuredRoutine<R> {
+export function compileColumnarRoutine<R extends NumBuildResult>(
+  definition: ColumnarDefinition,
+  opts: ColumnarRoutineOptions = {},
+): ColumnarRoutine<R> {
   const cpuBackends = configuredCpuBackends(opts);
   const gpuBackends = configuredGpuBackends(opts);
-  opts.diagnosticCheckpoint?.("lona:structured:compile:start");
+  opts.diagnosticCheckpoint?.("lona:columnar:compile:start");
 
   const scalarRoots = gatherScalarRoots(definition);
   let scalarRoutine: ValueRoutine | MultiValueRoutine | null = null;
@@ -545,7 +543,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
     const failures: string[] = [];
     for (const backend of cpuBackends) {
       opts.diagnosticCheckpoint?.(
-        `lona:structured:source:cpu:${backend}:compile`,
+        `lona:columnar:source:cpu:${backend}:compile`,
       );
       try {
         scalarRoutine = compileValueRoutine(scalarRoots, { backend });
@@ -556,7 +554,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
     }
     if (!scalarRoutine) {
       throw new Error(
-        `failed to compile structured scalar sources: ${failures.join("; ")}`,
+        `failed to compile columnar scalar sources: ${failures.join("; ")}`,
       );
     }
   }
@@ -575,21 +573,22 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
     throw error;
   }
   const output = definition.stages[definition.outputStage];
-  if (!output || output.kind !== "to-nums") {
+  const resultShape = definition.resultShape;
+  if (!output || !resultShape) {
     scalarRoutine?.dispose?.();
     for (const compiled of compiledStages) {
       compiled.cpuKernel?.dispose();
       compiled.gpuMapKernel?.dispose();
       compiled.gpuReduceKernel?.dispose();
     }
-    throw new Error("structured routine output must be a toNums stage");
+    throw new Error("columnar routine must end with column.output()");
   }
 
-  const stages: readonly StructuredStageInfo[] = Object.freeze(
+  const stages: readonly ColumnarStageInfo[] = Object.freeze(
     compiledStages.map(({ stage, placement, backend }) =>
       Object.freeze({
         id: stage.id,
-        kind: stage.kind === "to-nums" ? "toNums" : stage.kind,
+        kind: stage.kind,
         placement,
         backend,
       }),
@@ -598,19 +597,19 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
   const varSlots = Object.freeze([...(scalarRoutine?.varSlots ?? [])]);
   const numVars = varSlots.length;
   let disposed = false;
-  let lastEvaluationStats: StructuredEvaluationStats | null = null;
+  let lastEvaluationStats: ColumnarEvaluationStats | null = null;
   const bufferPool = new Map<string, GPUBuffer[]>();
 
-  opts.diagnosticCheckpoint?.("lona:structured:compile:done");
+  opts.diagnosticCheckpoint?.("lona:columnar:compile:done");
   return {
     varSlots,
     numVars,
     stages,
-    get lastEvaluationStats(): StructuredEvaluationStats | null {
+    get lastEvaluationStats(): ColumnarEvaluationStats | null {
       return lastEvaluationStats;
     },
     async evalAsync(vars: VarMap): Promise<ConcreteResult<R>> {
-      if (disposed) throw new Error("structured routine has been disposed");
+      if (disposed) throw new Error("columnar routine has been disposed");
       const evaluationStart = performance.now();
       let uploadedBytes = 0;
       let downloadedBytes = 0;
@@ -645,7 +644,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
         const device = requireGpuDevice();
         if (byteLength > device.limits.maxBufferSize) {
           throw new Error(
-            `structured GPU buffer requires ${byteLength} bytes; device limit is ${device.limits.maxBufferSize}`,
+            `columnar GPU buffer requires ${byteLength} bytes; device limit is ${device.limits.maxBufferSize}`,
           );
         }
         const allocatedBytes = Math.max(byteLength, 4);
@@ -654,7 +653,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
         const reused = available?.pop();
         if (reused) {
           opts.diagnosticCheckpoint?.(
-            `lona:structured:buffer-reuse:bytes:${allocatedBytes}`,
+            `lona:columnar:buffer-reuse:bytes:${allocatedBytes}`,
           );
         }
         const buffer =
@@ -692,10 +691,10 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
         }
         uploadedBytes += data.byteLength;
         opts.diagnosticCheckpoint?.(
-          `lona:structured:transfer:${stageId}:host-to-device`,
+          `lona:columnar:transfer:${stageId}:host-to-device`,
         );
         opts.diagnosticCheckpoint?.(
-          `lona:structured:cost:upload-bytes:${data.byteLength}`,
+          `lona:columnar:cost:upload-bytes:${data.byteLength}`,
         );
         return slice;
       };
@@ -709,7 +708,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
         if (column.location === "device") {
           if (column.count !== count || column.width !== width) {
             throw new Error(
-              `structured device column shape mismatch at stage ${stageId}`,
+              `columnar device column shape mismatch at stage ${stageId}`,
             );
           }
           return column;
@@ -743,7 +742,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
           column.slice.byteLength,
         );
         requireGpuDevice().queue.submit([pending.finish()]);
-        opts.diagnosticCheckpoint?.("lona:structured:gpu:submit");
+        opts.diagnosticCheckpoint?.("lona:columnar:gpu:submit");
         encoder = null;
         try {
           const values = await mapGpuReadbackBuffer(
@@ -753,10 +752,10 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
           downloadedBytes += column.slice.byteLength;
           readbackCount++;
           opts.diagnosticCheckpoint?.(
-            `lona:structured:transfer:${stageId}:device-to-host`,
+            `lona:columnar:transfer:${stageId}:device-to-host`,
           );
           opts.diagnosticCheckpoint?.(
-            `lona:structured:cost:download-bytes:${column.slice.byteLength}`,
+            `lona:columnar:cost:download-bytes:${column.slice.byteLength}`,
           );
           return { location: "host", values: Array.from(values) };
         } finally {
@@ -780,7 +779,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
             const source = stageValues.get(stage.source);
             if (!source) {
               throw new Error(
-                `structured stage ${stage.id} is missing source ${stage.source}`,
+                `columnar stage ${stage.id} is missing source ${stage.source}`,
               );
             }
 
@@ -857,7 +856,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
                 );
                 uploadedBytes += initial.byteLength;
                 opts.diagnosticCheckpoint?.(
-                  `lona:structured:cost:upload-bytes:${initial.byteLength}`,
+                  `lona:columnar:cost:upload-bytes:${initial.byteLength}`,
                 );
                 encoder ??= requireGpuDevice().createCommandEncoder();
                 encoder.copyBufferToBuffer(
@@ -928,7 +927,7 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
                         hostSource.values,
                         scalarValues,
                       )
-                    : evalToNums(
+                    : evalWholeColumn(
                         stage,
                         compiled.cpuKernel!,
                         hostSource.values,
@@ -946,12 +945,9 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
         }
 
         const result = stageValues.get(output.id);
-        if (!result) throw new Error("structured routine produced no output");
+        if (!result) throw new Error("columnar routine produced no output");
         const flatOutput = (await ensureHost(result, output.id)).values;
-        return decodeResult(
-          output.resultShape,
-          flatOutput,
-        ) as ConcreteResult<R>;
+        return decodeResult(resultShape, flatOutput) as ConcreteResult<R>;
       } finally {
         for (const [buffer, allocation] of ownedBuffers) {
           const available = bufferPool.get(allocation.key) ?? [];
@@ -969,16 +965,16 @@ export function compileStructuredRoutine<R extends NumBuildResult>(
           stageTimings: Object.freeze([...stageTimings]),
         });
         opts.diagnosticCheckpoint?.(
-          `lona:structured:cost:transferred-bytes:${uploadedBytes + downloadedBytes}`,
+          `lona:columnar:cost:transferred-bytes:${uploadedBytes + downloadedBytes}`,
         );
         opts.diagnosticCheckpoint?.(
-          `lona:structured:cost:dispatches:${dispatchCount}`,
+          `lona:columnar:cost:dispatches:${dispatchCount}`,
         );
         opts.diagnosticCheckpoint?.(
-          `lona:structured:cost:readbacks:${readbackCount}`,
+          `lona:columnar:cost:readbacks:${readbackCount}`,
         );
         opts.diagnosticCheckpoint?.(
-          `lona:structured:cost:evaluation-ms:${evaluationMilliseconds}`,
+          `lona:columnar:cost:evaluation-ms:${evaluationMilliseconds}`,
         );
       }
     },

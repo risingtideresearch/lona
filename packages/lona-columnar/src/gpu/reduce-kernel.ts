@@ -1,9 +1,9 @@
 import type { NumNode } from "lona/internal";
 import type { DeviceBufferSlice } from "lona/internal";
 import { requireGpuDevice } from "lona/internal";
-import { compileStructuredTape } from "../compile-tape";
-import type { BuiltInReduction, StructuredParamInput } from "../ir";
-import { compileStructuredGpuTapeKernel } from "./tape-kernel";
+import { compileColumnarTape } from "../compile-tape";
+import type { BuiltInReduction, ColumnarParamInput } from "../ir";
+import { compileColumnarGpuTapeKernel } from "./tape-kernel";
 
 const WORKGROUP_SIZE = 256;
 
@@ -258,10 +258,10 @@ export function compileGpuReduceKernel(
 
 export function compileGpuTracedReduceKernel(
   roots: readonly NumNode[],
-  inputs: readonly StructuredParamInput[],
+  inputs: readonly ColumnarParamInput[],
   width: number,
 ): CompiledGpuReduceKernel {
-  const compiled = compileStructuredTape(roots, inputs);
+  const compiled = compileColumnarTape(roots, inputs);
   const uniformWidth = compiled.tapeInputs.reduce(
     (result, { binding }) =>
       binding.kind === "uniform"
@@ -283,7 +283,7 @@ export function compileGpuTracedReduceKernel(
         );
     }
   });
-  const passKernel = compileStructuredGpuTapeKernel(compiled.tape, {
+  const passKernel = compileColumnarGpuTapeKernel(compiled.tape, {
     inputWidth: width,
     outputWidth: width,
     uniformWidth,

@@ -5,8 +5,8 @@ import type { ColumnValue, NumBuildResult, StageUsing } from "./types";
 import type {
   ResultShape,
   ScalarBindings,
-  StructuredKernel,
-  StructuredParamInput,
+  ColumnarKernel,
+  ColumnarParamInput,
 } from "./ir";
 import {
   flattenUsing,
@@ -22,7 +22,7 @@ function makeParams(
   start: number,
   count: number,
 ): { nodes: Variable[]; nums: Num[] } {
-  const label = owner.description ?? "structured-stage";
+  const label = owner.description ?? "columnar-stage";
   const nodes = Array.from({ length: count }, (_, index) =>
     varNode(Symbol(`${label}.param.${start + index}`)),
   );
@@ -57,7 +57,7 @@ export function traceUsing<TUsing extends StageUsing>(
 }
 
 export interface TracedMap<O extends ColumnValue> {
-  readonly kernel: StructuredKernel;
+  readonly kernel: ColumnarKernel;
   readonly using: ScalarBindings;
   readonly outputShape: ValueShape<O>;
 }
@@ -89,7 +89,7 @@ export function traceMap<
   ];
   validateKernelRoots(params, roots, "column.map");
 
-  const inputs: StructuredParamInput[] = [
+  const inputs: ColumnarParamInput[] = [
     ...input.nodes.map((param, component) => ({
       param,
       binding: { kind: "row" as const, component },
@@ -117,7 +117,7 @@ export function traceMap<
 }
 
 export interface TracedReduce {
-  readonly kernel: StructuredKernel;
+  readonly kernel: ColumnarKernel;
   readonly using: ScalarBindings;
 }
 
@@ -145,7 +145,7 @@ export function traceReduce<T extends ColumnValue, TUsing extends StageUsing>(
   ];
   validateKernelRoots(params, roots, "column.reduce");
 
-  const inputs: StructuredParamInput[] = [
+  const inputs: ColumnarParamInput[] = [
     ...left.nodes.map((param, component) => ({
       param,
       binding: { kind: "reduce-left" as const, component },
@@ -174,32 +174,35 @@ export function traceReduce<T extends ColumnValue, TUsing extends StageUsing>(
   };
 }
 
-export interface TracedToNums {
+export interface TracedWholeColumn {
   readonly params: readonly Variable[];
-  readonly inputs: readonly StructuredParamInput[];
+  readonly inputs: readonly ColumnarParamInput[];
   readonly using: ScalarBindings;
   readonly roots: readonly NumNode[];
   readonly resultShape: ResultShape;
 }
 
-function flattenBuildResult(result: NumBuildResult): {
+function flattenBuildResult(
+  result: NumBuildResult,
+  label: string,
+): {
   roots: NumNode[];
   shape: ResultShape;
 } {
   const values: readonly ColumnValue[] = Array.isArray(result)
     ? (result as readonly ColumnValue[])
     : [result as ColumnValue];
-  if (values.length === 0) throw new Error("column.toNums produced no values");
+  if (values.length === 0) throw new Error(`${label} produced no values`);
 
   const shapes: ValueShape[] = [];
   const roots: NumNode[] = [];
   for (let i = 0; i < values.length; i++) {
     const value = values[i]!;
-    const shape = shapeOfValue(value, `column.toNums output ${i}`);
+    const shape = shapeOfValue(value, `${label} output ${i}`);
     shapes.push(shape);
     roots.push(
       ...shape
-        .flatten(value, `column.toNums output ${i}`)
+        .flatten(value, `${label} output ${i}`)
         .map((component) => component.n),
     );
   }
@@ -213,17 +216,18 @@ function flattenBuildResult(result: NumBuildResult): {
   };
 }
 
-export function traceToNums<
+export function traceWholeColumn<
   T extends ColumnValue,
   TUsing extends StageUsing,
   R extends NumBuildResult,
 >(
+  label: "column.then" | "column.output",
   shape: ValueShape<T>,
   count: number,
   using: TUsing,
   build: (values: readonly T[], usingValue: TUsing) => R,
-): TracedToNums {
-  const owner = Symbol("column.toNums");
+): TracedWholeColumn {
+  const owner = Symbol(label);
   const source = makeParams(owner, 0, count * shape.width);
   const values = Array.from({ length: count }, (_, row) =>
     shape.rebuild(
@@ -231,11 +235,11 @@ export function traceToNums<
     ),
   );
   const tracedUsing = traceUsing(owner, using, source.nodes.length);
-  const result = flattenBuildResult(build(values, tracedUsing.value));
+  const result = flattenBuildResult(build(values, tracedUsing.value), label);
   const params = [...source.nodes, ...tracedUsing.bindings.params];
-  validateKernelRoots(params, result.roots, "column.toNums");
+  validateKernelRoots(params, result.roots, label);
 
-  const inputs: StructuredParamInput[] = [
+  const inputs: ColumnarParamInput[] = [
     ...source.nodes.map((param, component) => ({
       param,
       binding: { kind: "materialized" as const, component },

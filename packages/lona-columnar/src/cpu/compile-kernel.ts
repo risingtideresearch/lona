@@ -4,8 +4,8 @@ import {
   type MultiValueRoutine,
   type ValueRoutine,
 } from "lona/internal";
-import { compileStructuredTape } from "../compile-tape";
-import type { StructuredParamInput } from "../ir";
+import { compileColumnarTape } from "../compile-tape";
+import type { ColumnarParamInput } from "../ir";
 import type { CpuBackendName } from "../types";
 
 export interface CompiledCpuKernel {
@@ -25,10 +25,10 @@ function resultArray(
 /** Compile a private-variable kernel directly to tape, preserving positional metadata. */
 export function compileCpuKernel(
   roots: readonly NumNode[],
-  inputs: readonly StructuredParamInput[],
+  inputs: readonly ColumnarParamInput[],
   backend: CpuBackendName,
 ): CompiledCpuKernel {
-  const compiled = compileStructuredTape(roots, inputs);
+  const compiled = compileColumnarTape(roots, inputs);
   const routine = compileValueRoutineFromTape(compiled.tape, { backend });
 
   return {
@@ -36,7 +36,7 @@ export function compileCpuKernel(
     eval(values: readonly number[]): number[] {
       if (values.length !== inputs.length) {
         throw new Error(
-          `structured CPU kernel expected ${inputs.length} inputs, got ${values.length}`,
+          `columnar CPU kernel expected ${inputs.length} inputs, got ${values.length}`,
         );
       }
       const vars = new Map<VarName, number>();

@@ -1,11 +1,11 @@
-import { asNum, type Num } from "lona";
+import { asNum, Num } from "lona";
 import type { NumStruct } from "lona";
-import { StructuredBuilder, type StructuredDefinition } from "./ir";
+import { ColumnarBuilder, type ColumnarDefinition } from "./ir";
 import { emptyUsing, shapeOfValue, type ValueShape } from "./shape";
-import { traceMap, traceReduce, traceToNums } from "./trace";
-import { compileStructuredRoutine } from "./runtime";
+import { traceMap, traceReduce, traceWholeColumn } from "./trace";
+import { compileColumnarRoutine } from "./runtime";
 import {
-  STRUCTURED_VALUE_RESULT,
+  COLUMNAR_OUTPUT_RESULT,
   type BuiltInReductionOptions,
   type Column,
   type ColumnValue,
@@ -19,9 +19,9 @@ import {
   type StageOptions,
   type StagePlacement,
   type StageUsing,
-  type StructuredCompileOptions,
-  type StructuredRoutine,
-  type StructuredValue,
+  type ColumnarRoutineOptions,
+  type ColumnarRoutine,
+  type ColumnarOutput,
   type UsingContext,
 } from "./types";
 
@@ -44,7 +44,7 @@ interface ReduceSpec<T extends ColumnValue, TUsing extends StageUsing> {
   placement?: StagePlacement;
 }
 
-interface ToNumsSpec<
+interface OutputSpec<
   T extends ColumnValue,
   TUsing extends StageUsing,
   R extends NumBuildResult,
@@ -54,20 +54,31 @@ interface ToNumsSpec<
   placement?: StagePlacement;
 }
 
-class StructuredValueHandle<
-  R extends NumBuildResult,
-> implements StructuredValue<R> {
-  declare readonly [STRUCTURED_VALUE_RESULT]: R;
+interface ThenSpec<
+  T extends ColumnValue,
+  TUsing extends StageUsing,
+  U extends ColumnValue,
+> {
+  using: TUsing;
+  build: (values: readonly T[], context: UsingContext<TUsing>) => Column<U>;
+  placement?: StagePlacement;
+}
 
-  constructor(readonly definition: StructuredDefinition) {}
+class ColumnarOutputHandle<
+  R extends NumBuildResult,
+> implements ColumnarOutput<R> {
+  declare readonly [COLUMNAR_OUTPUT_RESULT]: R;
+
+  constructor(readonly definition: ColumnarDefinition) {}
 }
 
 class ColumnHandle<T extends ColumnValue> implements Column<T> {
   constructor(
-    private readonly builder: StructuredBuilder,
+    private readonly builder: ColumnarBuilder,
     private readonly stageId: number,
     readonly length: number,
     private readonly shape: ValueShape<T>,
+    private readonly outputCollection: "single" | "array" = "array",
   ) {}
 
   map<U extends ColumnValue>(
@@ -197,6 +208,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       stage.id,
       1,
       this.shape,
+      "single",
     ) as ReducedColumn<T>;
   }
 
@@ -261,6 +273,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       stage.id,
       1,
       this.shape,
+      "single",
     ) as ReducedColumn<T>;
   }
 
@@ -308,22 +321,24 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
     return this.reduceBuiltIn("max", opts);
   }
 
-  toNums<R extends NumBuildResult>(
-    build: (values: readonly T[]) => R,
+  then<U extends ColumnValue>(
+    build: (values: readonly T[]) => Column<U>,
     opts?: StageOptions,
-  ): StructuredValue<R>;
-  toNums<TUsing extends StageUsing, R extends NumBuildResult>(
-    spec: ToNumsSpec<T, TUsing, R>,
-  ): StructuredValue<R>;
-  toNums<TUsing extends StageUsing, R extends NumBuildResult>(
-    buildOrSpec: ((values: readonly T[]) => R) | ToNumsSpec<T, TUsing, R>,
+  ): Column<U>;
+  then<TUsing extends StageUsing, U extends ColumnValue>(
+    spec: ThenSpec<T, TUsing, U>,
+  ): Column<U>;
+  then<TUsing extends StageUsing>(
+    buildOrSpec:
+      | ((values: readonly T[]) => Column<ColumnValue>)
+      | ThenSpec<T, TUsing, ColumnValue>,
     opts: StageOptions = {},
-  ): StructuredValue<R> {
+  ): Column<ColumnValue> {
     let using: TUsing | EmptyUsing;
     let build: (
       values: readonly T[],
       context: UsingContext<TUsing | EmptyUsing>,
-    ) => R;
+    ) => Column<ColumnValue>;
     let stageOptions: StageOptions;
 
     if (typeof buildOrSpec === "function") {
@@ -332,21 +347,42 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       stageOptions = opts;
     } else {
       using = buildOrSpec.using;
-      build = buildOrSpec.build as (
-        values: readonly T[],
-        context: UsingContext<TUsing | EmptyUsing>,
-      ) => R;
+      build = buildOrSpec.build as typeof build;
       stageOptions = buildOrSpec;
     }
 
-    const traced = traceToNums(
+    let returnedColumn: ColumnHandle<ColumnValue> | undefined;
+    const traced = traceWholeColumn(
+      "column.then",
       this.shape,
       this.length,
       using,
-      (values, usingValue) => build(values, { using: usingValue }),
+      (values, usingValue) => {
+        const result = build(values, { using: usingValue });
+        if (!(result instanceof ColumnHandle)) {
+          throw new Error("column.then callback must return column(...)");
+        }
+        returnedColumn = result as ColumnHandle<ColumnValue>;
+        const source = returnedColumn.definition().stages[0];
+        if (!source || source.kind !== "source") {
+          throw new Error(
+            "column.then callback column must start with a source",
+          );
+        }
+        if (source.count === 0) {
+          throw new Error("column.then produced an empty column");
+        }
+        return Array.from({ length: source.count }, (_, row) =>
+          source.shape.rebuild(
+            source.roots
+              .slice(row * source.shape.width, (row + 1) * source.shape.width)
+              .map((root) => new Num(root)),
+          ),
+        ) as readonly NumStruct<unknown>[];
+      },
     );
     const stage = this.builder.add({
-      kind: "to-nums",
+      kind: "then",
       source: this.stageId,
       sourceCount: this.length,
       sourceShape: this.shape,
@@ -358,11 +394,86 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       requestedPlacement: stageOptions.placement,
     });
 
-    return new StructuredValueHandle<R>(this.builder.definition(stage.id));
+    const child = returnedColumn!;
+    const outputStage = this.builder.adopt(child.definition(), stage.id);
+    return new ColumnHandle(
+      this.builder,
+      outputStage,
+      child.length,
+      child.shape,
+    );
+  }
+
+  output(this: ReducedColumn<T>): ColumnarOutput<T>;
+  output(): ColumnarOutput<T | readonly T[]>;
+  output<R extends NumBuildResult>(
+    build: (values: readonly T[]) => R,
+    opts?: StageOptions,
+  ): ColumnarOutput<R>;
+  output<TUsing extends StageUsing, R extends NumBuildResult>(
+    spec: OutputSpec<T, TUsing, R>,
+  ): ColumnarOutput<R>;
+  output<TUsing extends StageUsing>(
+    buildOrSpec?:
+      | ((values: readonly T[]) => NumBuildResult)
+      | OutputSpec<T, TUsing, NumBuildResult>,
+    opts: StageOptions = {},
+  ): ColumnarOutput<NumBuildResult> {
+    if (buildOrSpec === undefined) {
+      const values = Object.freeze(
+        Array.from({ length: this.length }, () => this.shape),
+      );
+      const resultShape = Object.freeze({
+        collection: this.outputCollection,
+        values,
+      });
+      return new ColumnarOutputHandle<NumBuildResult>(
+        this.builder.definition(this.stageId, resultShape),
+      );
+    }
+
+    let using: TUsing | EmptyUsing;
+    let build: (
+      values: readonly T[],
+      context: UsingContext<TUsing | EmptyUsing>,
+    ) => NumBuildResult;
+    let stageOptions: StageOptions;
+    if (typeof buildOrSpec === "function") {
+      using = emptyUsing<EmptyUsing>();
+      build = (values) => buildOrSpec(values);
+      stageOptions = opts;
+    } else {
+      using = buildOrSpec.using;
+      build = buildOrSpec.build as typeof build;
+      stageOptions = buildOrSpec;
+    }
+
+    const traced = traceWholeColumn(
+      "column.output",
+      this.shape,
+      this.length,
+      using,
+      (values, usingValue) => build(values, { using: usingValue }),
+    );
+    const stage = this.builder.add({
+      kind: "output",
+      source: this.stageId,
+      sourceCount: this.length,
+      sourceShape: this.shape,
+      params: traced.params,
+      inputs: traced.inputs,
+      using: traced.using,
+      roots: traced.roots,
+      resultShape: traced.resultShape,
+      requestedPlacement: stageOptions.placement,
+    });
+    return new ColumnarOutputHandle<NumBuildResult>(
+      this.builder.definition(stage.id, traced.resultShape),
+    );
   }
 
   /** @internal Test and future compiler hook. */
-  definition(): StructuredDefinition {
+  definition(): ColumnarDefinition {
     return this.builder.definition(this.stageId);
   }
 }
@@ -393,7 +504,7 @@ export function column<T extends ColumnValue>(
   const roots = copiedValues.flatMap((value, index) =>
     shape.flatten(value, `column value ${index}`).map((num) => num.n),
   );
-  const builder = new StructuredBuilder();
+  const builder = new ColumnarBuilder();
   const source = builder.add({
     kind: "source",
     count: copiedValues.length,
@@ -407,7 +518,7 @@ export function column<T extends ColumnValue>(
 /** @internal Inspect a partially-built column graph. */
 export function getColumnDefinition<T extends ColumnValue>(
   value: Column<T>,
-): StructuredDefinition {
+): ColumnarDefinition {
   if (!(value instanceof ColumnHandle)) {
     throw new Error("Column was not created by lona column()");
   }
@@ -415,18 +526,18 @@ export function getColumnDefinition<T extends ColumnValue>(
 }
 
 /** @internal Future compiler hook and structural test helper. */
-export function getStructuredDefinition<R extends NumBuildResult>(
-  value: StructuredValue<R>,
-): StructuredDefinition {
-  if (!(value instanceof StructuredValueHandle)) {
-    throw new Error("StructuredValue was not created by lona column.toNums()");
+export function getColumnarDefinition<R extends NumBuildResult>(
+  value: ColumnarOutput<R>,
+): ColumnarDefinition {
+  if (!(value instanceof ColumnarOutputHandle)) {
+    throw new Error("ColumnarOutput was not created by lona column.output()");
   }
   return value.definition;
 }
 
-export function buildStructuredRoutine<R extends NumBuildResult>(
-  build: () => StructuredValue<R>,
-  opts?: StructuredCompileOptions,
-): StructuredRoutine<R> {
-  return compileStructuredRoutine<R>(getStructuredDefinition(build()), opts);
+export function columnarRoutine<R extends NumBuildResult>(
+  build: () => ColumnarOutput<R>,
+  opts?: ColumnarRoutineOptions,
+): ColumnarRoutine<R> {
+  return compileColumnarRoutine<R>(getColumnarDefinition(build()), opts);
 }

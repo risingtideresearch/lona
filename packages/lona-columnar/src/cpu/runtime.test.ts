@@ -3,7 +3,7 @@ import type { NumStruct } from "lona";
 import { Num, asNum, variableNum } from "lona";
 import { isGpuAvailable } from "lona/internal";
 import type { CpuBackendName } from "../types";
-import { buildStructuredRoutine, column } from "../api";
+import { columnarRoutine, column } from "../api";
 
 class Pair implements NumStruct<Pair> {
   constructor(
@@ -32,16 +32,16 @@ const CPU_BACKENDS: readonly CpuBackendName[] = [
   "wasm-codegen",
 ];
 
-describe("structured CPU runtime", () => {
+describe("columnar CPU runtime", () => {
   test.each(CPU_BACKENDS)(
-    "map -> reduce -> toNums executes on %s",
+    "map -> reduce -> output executes on %s",
     async (backend) => {
       const x = variableNum("runtime-x");
       const y = variableNum("runtime-y");
       const offset = variableNum("runtime-offset");
       const scale = variableNum("runtime-scale");
 
-      const routine = buildStructuredRoutine(
+      const routine = columnarRoutine(
         () =>
           column([x, y])
             .map({
@@ -55,7 +55,7 @@ describe("structured CPU runtime", () => {
               order: "tree",
               placement: "cpu",
             })
-            .toNums({
+            .output({
               using: { scale },
               build: ([total], { using }) => [total!.mul(using.scale)],
               placement: "cpu",
@@ -85,18 +85,73 @@ describe("structured CPU runtime", () => {
         "source",
         "map",
         "reduce",
-        "toNums",
+        "output",
       ]);
       routine.dispose();
     },
   );
+
+  test("outputs a column or reduced value without adding a CPU output stage", async () => {
+    const values = columnarRoutine(
+      () =>
+        column([asNum(2), asNum(5)])
+          .map((value) => value.add(1))
+          .output(),
+      { placement: "cpu", backends: { cpu: "js-interp" } },
+    );
+    await expect(values.evalAsync(new Map())).resolves.toEqual([3, 6]);
+    expect(values.stages.map(({ kind }) => kind)).toEqual(["source", "map"]);
+
+    const total = columnarRoutine(
+      () =>
+        column([asNum(2), asNum(5)])
+          .sum()
+          .output(),
+      { placement: "cpu", backends: { cpu: "js-interp" } },
+    );
+    await expect(total.evalAsync(new Map())).resolves.toBe(7);
+    expect(total.stages.map(({ kind }) => kind)).toEqual(["source", "reduce"]);
+    values.dispose();
+    total.dispose();
+  });
+
+  test("continues execution through a column returned by then", async () => {
+    const x = variableNum("expanded-x");
+    const y = variableNum("expanded-y");
+    const routine = columnarRoutine(
+      () =>
+        column([x, y])
+          .then(([a, b]) => column([a!.add(b!), b!.mul(2)]))
+          .map((value) => value.add(1))
+          .sum()
+          .output(([total]) => total!),
+      { backends: { cpu: "js-codegen" }, placement: "cpu" },
+    );
+
+    expect(
+      await routine.evalAsync(
+        new Map([
+          ["expanded-x", 2],
+          ["expanded-y", 5],
+        ]),
+      ),
+    ).toBe(19);
+    expect(routine.stages.map(({ kind }) => kind)).toEqual([
+      "source",
+      "then",
+      "map",
+      "reduce",
+      "output",
+    ]);
+    routine.dispose();
+  });
 
   test("executes chained NumStruct maps and decodes a struct result", async () => {
     const x = variableNum("pair-x");
     const y = variableNum("pair-y");
     const zero = new Pair(asNum(0), asNum(0));
 
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([new Pair(x, y), new Pair(y, x)])
           .map((pair, { index }) =>
@@ -107,7 +162,7 @@ describe("structured CPU runtime", () => {
             associative: true,
             order: "left",
           })
-          .toNums(([total]) => total!),
+          .output(([total]) => total!),
       { backends: { cpu: "js-interp" }, placement: "cpu" },
     );
 
@@ -123,9 +178,9 @@ describe("structured CPU runtime", () => {
   });
 
   test("decodes an array of NumStruct outputs", async () => {
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
-        column([new Pair(asNum(1), asNum(2))]).toNums(([pair]) => [
+        column([new Pair(asNum(1), asNum(2))]).output(([pair]) => [
           pair!,
           new Pair(pair!.x.add(10), pair!.y.add(20)),
         ]),
@@ -140,14 +195,14 @@ describe("structured CPU runtime", () => {
 
   test("empty reduction returns its initial value", async () => {
     const zero = new Pair(asNum(7), asNum(9));
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([], { shape: zero })
           .reduce((left, right) => left.add(right), zero, {
             associative: true,
             order: "tree",
           })
-          .toNums(([result]) => result!),
+          .output(([result]) => result!),
       { backends: { cpu: "wasm-codegen" }, placement: "cpu" },
     );
 
@@ -171,8 +226,8 @@ describe("structured CPU runtime", () => {
             : operation === "min"
               ? source.min()
               : source.max();
-      const routine = buildStructuredRoutine(
-        () => reduced.toNums(([value]) => value!),
+      const routine = columnarRoutine(
+        () => reduced.output(([value]) => value!),
         { backends: { cpu: "js-interp" }, placement: "cpu" },
       );
       return routine.evalAsync(new Map());
@@ -191,7 +246,7 @@ describe("structured CPU runtime", () => {
       const right = variableNum("builtin-zero-right");
       const source = column([left, right]);
       const reduced = operation === "min" ? source.min() : source.max();
-      return buildStructuredRoutine(() => reduced.toNums(([value]) => value!), {
+      return columnarRoutine(() => reduced.output(([value]) => value!), {
         backends: { cpu: "js-interp" },
         placement: "cpu",
       }).evalAsync(
@@ -205,20 +260,20 @@ describe("structured CPU runtime", () => {
     expect(Object.is(await signedZero("max"), 0)).toBe(true);
 
     const pairShape = new Pair(asNum(0), asNum(0));
-    const pairRoutine = buildStructuredRoutine(
+    const pairRoutine = columnarRoutine(
       () =>
         column([new Pair(asNum(1), asNum(2)), new Pair(asNum(3), asNum(4))])
           .sum({ componentWise: true })
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "wasm-codegen" }, placement: "cpu" },
     );
     await expect(pairRoutine.evalAsync(new Map())).resolves.toEqual([4, 6]);
 
-    const emptyRoutine = buildStructuredRoutine(
+    const emptyRoutine = columnarRoutine(
       () =>
         column([], { shape: pairShape })
           .sum({ componentWise: true })
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "js-interp" }, placement: "cpu" },
     );
     await expect(emptyRoutine.evalAsync(new Map())).resolves.toEqual([0, 0]);
@@ -227,14 +282,14 @@ describe("structured CPU runtime", () => {
   test("left and tree reductions have explicit ordering", async () => {
     const source = [asNum(1), asNum(2), asNum(3)];
     const make = (order: "left" | "tree") =>
-      buildStructuredRoutine(
+      columnarRoutine(
         () =>
           column(source)
             .reduce((left, right) => left.sub(right), asNum(0), {
               associative: order === "tree",
               order,
             })
-            .toNums(([result]) => result!),
+            .output(([result]) => result!),
         { backends: { cpu: "js-interp" }, placement: "cpu" },
       );
 
@@ -243,30 +298,30 @@ describe("structured CPU runtime", () => {
   });
 
   test("hard placement is enforced without explicit transfer stages", async () => {
-    const cpu = buildStructuredRoutine(
+    const cpu = columnarRoutine(
       () =>
         column([asNum(2)])
           .map((value) => value.square(), { placement: "cpu" })
-          .toNums(([value]) => value!, { placement: "cpu" }),
+          .output(([value]) => value!, { placement: "cpu" }),
       { backends: { cpu: "js-interp" } },
     );
     await expect(cpu.evalAsync(new Map())).resolves.toBe(4);
 
     expect(() =>
-      buildStructuredRoutine(() =>
-        column([asNum(1)]).toNums(([value]) => value!, {
+      columnarRoutine(() =>
+        column([asNum(1)]).output(([value]) => value!, {
           placement: "gpu",
         }),
       ),
-    ).toThrow(/toNums stages execute on CPU/);
+    ).toThrow(/whole-column stages execute on CPU/);
   });
 
   test("map/reduce default to GPU-first auto and permit per-kind placement", async () => {
-    const preferredMap = buildStructuredRoutine(
+    const preferredMap = columnarRoutine(
       () =>
         column([asNum(2)])
           .map((value) => value.square())
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "js-interp" } },
     );
     const mapStage = preferredMap.stages.find((stage) => stage.kind === "map");
@@ -275,14 +330,14 @@ describe("structured CPU runtime", () => {
     );
     await expect(preferredMap.evalAsync(new Map())).resolves.toBe(4);
 
-    const ordered = buildStructuredRoutine(
+    const ordered = columnarRoutine(
       () =>
         column([asNum(4), asNum(1)])
           .reduce((left, right) => left.sub(right), asNum(0), {
             associative: false,
             order: "left",
           })
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "js-interp" } },
     );
     expect(
@@ -290,15 +345,15 @@ describe("structured CPU runtime", () => {
     ).toBe("js-interp");
     await expect(ordered.evalAsync(new Map())).resolves.toBe(-5);
 
-    const forcedCpu = buildStructuredRoutine(
+    const forcedCpu = columnarRoutine(
       () =>
         column([asNum(3)])
           .map((value) => value.add(1))
           .sum()
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       {
         backends: { cpu: "js-interp" },
-        placement: { map: "cpu", reduce: "cpu", toNums: "cpu" },
+        placement: { map: "cpu", reduce: "cpu", output: "cpu" },
       },
     );
     expect(
@@ -310,17 +365,17 @@ describe("structured CPU runtime", () => {
   });
 
   test("auto target and backend preferences resolve by stage kind", async () => {
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([asNum(2), asNum(3)])
           .map((value) => value.square())
           .sum()
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       {
         placement: {
           map: "auto",
           reduce: "cpu",
-          toNums: "cpu",
+          output: "cpu",
         },
         auto: {
           targets: { map: ["cpu", "gpu"] },
@@ -342,17 +397,17 @@ describe("structured CPU runtime", () => {
       { kind: "source", placement: undefined, backend: undefined },
       { kind: "map", placement: "cpu", backend: "js-codegen" },
       { kind: "reduce", placement: "cpu", backend: "js-codegen" },
-      { kind: "toNums", placement: "cpu", backend: "js-codegen" },
+      { kind: "output", placement: "cpu", backend: "js-codegen" },
     ]);
     await expect(routine.evalAsync(new Map())).resolves.toBe(13);
   });
 
   test("reports evaluation costs and stage timings", async () => {
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([asNum(1), asNum(2)])
           .sum()
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "js-interp" }, placement: "cpu" },
     );
     expect(routine.lastEvaluationStats).toBeNull();
@@ -371,8 +426,8 @@ describe("structured CPU runtime", () => {
   });
 
   test("dispose is idempotent and prevents later evaluation", async () => {
-    const routine = buildStructuredRoutine(
-      () => column([asNum(1)]).toNums(([value]) => value!),
+    const routine = columnarRoutine(
+      () => column([asNum(1)]).output(([value]) => value!),
       { backends: { cpu: "js-codegen" }, placement: "cpu" },
     );
     await expect(routine.evalAsync(new Map())).resolves.toBe(1);
@@ -381,13 +436,13 @@ describe("structured CPU runtime", () => {
     await expect(routine.evalAsync(new Map())).rejects.toThrow(/disposed/);
   });
 
-  test("reports structured compilation checkpoints", () => {
+  test("reports columnar compilation checkpoints", () => {
     const checkpoints: string[] = [];
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([asNum(1)])
           .map((value) => value.add(1))
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       {
         placement: "cpu",
         backends: { cpu: "js-interp" },
@@ -396,16 +451,16 @@ describe("structured CPU runtime", () => {
     );
 
     expect(checkpoints).toEqual([
-      "lona:structured:compile:start",
-      "lona:structured:map:1:cpu:js-interp:compile",
-      "lona:structured:to-nums:2:cpu:js-interp:compile",
-      "lona:structured:compile:done",
+      "lona:columnar:compile:start",
+      "lona:columnar:map:1:cpu:js-interp:compile",
+      "lona:columnar:output:2:cpu:js-interp:compile",
+      "lona:columnar:compile:done",
     ]);
     routine.dispose();
   });
 
   test("debug/select operations survive parameter variable binding", async () => {
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([variableNum("select-x")])
           .map((value) =>
@@ -414,7 +469,7 @@ describe("structured CPU runtime", () => {
               .and(value.debug("positive"))
               .or(value.not().and(value.neg())),
           )
-          .toNums(([value]) => value!),
+          .output(([value]) => value!),
       { backends: { cpu: "js-interp" }, placement: "cpu" },
     );
 

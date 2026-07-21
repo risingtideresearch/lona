@@ -1,4 +1,4 @@
-export { column, buildStructuredRoutine } from "./api";
+export { column, columnarRoutine } from "./api";
 export type {
   ColumnValue,
   ExternalNumValue,
@@ -20,13 +20,13 @@ export type {
   BuiltInReductionOptions,
   ComponentWiseReductionOptions,
   NumBuildResult,
-  StructuredValue,
+  ColumnarOutput,
   ConcreteResult,
-  StructuredCompileOptions,
-  StructuredStageInfo,
-  StructuredStageTiming,
-  StructuredEvaluationStats,
-  StructuredRoutine,
+  ColumnarRoutineOptions,
+  ColumnarStageInfo,
+  ColumnarStageTiming,
+  ColumnarEvaluationStats,
+  ColumnarRoutine,
   Column,
   ReducedColumn,
   EmptyColumnOptions,

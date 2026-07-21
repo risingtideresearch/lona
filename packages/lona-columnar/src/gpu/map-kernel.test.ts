@@ -3,8 +3,8 @@ import type { NumStruct } from "lona";
 import { Num, asNum, variableNum } from "lona";
 import { varNode } from "lona/internal";
 import { destroyGpu, initGpu } from "lona/internal";
-import { column, buildStructuredRoutine } from "../api";
-import type { StructuredParamInput } from "../ir";
+import { column, columnarRoutine } from "../api";
+import type { ColumnarParamInput } from "../ir";
 import { packGpuMapInputs } from "./map-kernel";
 
 class Quad implements NumStruct<Quad> {
@@ -28,10 +28,10 @@ afterAll(async () => {
   if (shouldTestGpu) await destroyGpu();
 });
 
-describe("structured GPU map", () => {
+describe("columnar GPU map", () => {
   test("packs rows, uniforms, and indexes in tape slot order", () => {
     const param = (index: number) => varNode(Symbol(`packing.param.${index}`));
-    const inputs: StructuredParamInput[] = [
+    const inputs: ColumnarParamInput[] = [
       { param: param(3), binding: { kind: "index" } },
       {
         param: param(2),
@@ -60,7 +60,7 @@ describe("structured GPU map", () => {
 
   gpuTest("maps and reduces a multi-component column on device", async () => {
     const checkpoints: string[] = [];
-    const routine = buildStructuredRoutine(
+    const routine = columnarRoutine(
       () =>
         column([
           new Quad([asNum(1), asNum(2), asNum(3), asNum(4)]),
@@ -80,7 +80,7 @@ describe("structured GPU map", () => {
             placement: "gpu",
             order: "tree",
           })
-          .toNums(([total]) => total!),
+          .output(),
       {
         backends: { cpu: "wasm-codegen", gpu: "gpu-codegen" },
         diagnosticCheckpoint: (checkpoint) => checkpoints.push(checkpoint),
@@ -98,7 +98,7 @@ describe("structured GPU map", () => {
     ).toHaveLength(1);
     expect(
       checkpoints.filter(
-        (checkpoint) => checkpoint === "lona:structured:gpu:submit",
+        (checkpoint) => checkpoint === "lona:columnar:gpu:submit",
       ),
     ).toHaveLength(1);
     routine.dispose();
@@ -121,10 +121,9 @@ describe("structured GPU map", () => {
             : operation === "min"
               ? source.min({ placement: "gpu" })
               : source.max({ placement: "gpu" });
-      const routine = buildStructuredRoutine(
-        () => reduced.toNums(([value]) => value!),
-        { backends: { cpu: "wasm-codegen" } },
-      );
+      const routine = columnarRoutine(() => reduced.output(), {
+        backends: { cpu: "wasm-codegen" },
+      });
       await expect(routine.evalAsync(new Map())).resolves.toBe(expected);
       routine.dispose();
     }
@@ -134,7 +133,7 @@ describe("structured GPU map", () => {
     "runs an arbitrary associative GPU reduction with uniforms",
     async () => {
       const bias = variableNum("gpu-reduce-bias");
-      const routine = buildStructuredRoutine(
+      const routine = columnarRoutine(
         () =>
           column([asNum(1), asNum(2), asNum(3)])
             .reduce({
@@ -146,7 +145,7 @@ describe("structured GPU map", () => {
               order: "tree",
               placement: "gpu",
             })
-            .toNums(([value]) => value!),
+            .output(([value]) => value!),
         { backends: { cpu: "wasm-codegen" } },
       );
 
@@ -165,12 +164,12 @@ describe("structured GPU map", () => {
   );
 
   gpuTest("keeps chained GPU maps device-resident", async () => {
-    const x = variableNum("gpu-structured-x");
-    const y = variableNum("gpu-structured-y");
-    const offset = variableNum("gpu-structured-offset");
+    const x = variableNum("gpu-columnar-x");
+    const y = variableNum("gpu-columnar-y");
+    const offset = variableNum("gpu-columnar-offset");
     const checkpoints: string[] = [];
 
-    const gpuRoutine = buildStructuredRoutine(
+    const gpuRoutine = columnarRoutine(
       () =>
         column([x, y, asNum(4)])
           .map({
@@ -189,14 +188,14 @@ describe("structured GPU map", () => {
             order: "left",
             placement: "cpu",
           })
-          .toNums(([total]) => total!),
+          .output(([total]) => total!),
       {
         backends: { cpu: "wasm-codegen", gpu: "gpu-codegen" },
         diagnosticCheckpoint: (checkpoint) => checkpoints.push(checkpoint),
       },
     );
 
-    const cpuRoutine = buildStructuredRoutine(
+    const cpuRoutine = columnarRoutine(
       () =>
         column([x, y, asNum(4)])
           .map({
@@ -214,14 +213,14 @@ describe("structured GPU map", () => {
             associative: true,
             order: "left",
           })
-          .toNums(([total]) => total!),
+          .output(([total]) => total!),
       { backends: { cpu: "wasm-codegen" } },
     );
 
     const vars = new Map([
-      ["gpu-structured-x", 2],
-      ["gpu-structured-y", 5],
-      ["gpu-structured-offset", 10],
+      ["gpu-columnar-x", 2],
+      ["gpu-columnar-y", 5],
+      ["gpu-columnar-offset", 10],
     ]);
     const gpuResult = await gpuRoutine.evalAsync(vars);
     const cpuResult = await cpuRoutine.evalAsync(vars);
@@ -241,12 +240,12 @@ describe("structured GPU map", () => {
     ).toHaveLength(1);
     expect(
       checkpoints.filter(
-        (checkpoint) => checkpoint === "lona:structured:gpu:submit",
+        (checkpoint) => checkpoint === "lona:columnar:gpu:submit",
       ),
     ).toHaveLength(1);
     expect(
       checkpoints.filter((checkpoint) =>
-        checkpoint.startsWith("lona:structured:buffer-reuse"),
+        checkpoint.startsWith("lona:columnar:buffer-reuse"),
       ).length,
     ).toBeGreaterThan(0);
 

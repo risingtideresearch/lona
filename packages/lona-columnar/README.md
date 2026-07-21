@@ -2,25 +2,26 @@
 
 Experimental columnar map/reduce execution for `lona`.
 
-## Structured columns (experimental)
+## Columnar columns (experimental)
 
-Structured columns are available through the optional `lona-columnar` package. They preserve
+Columnar columns are available through the optional `lona-columnar` package. They preserve
 a map/reduce axis instead of expanding it into one scalar DAG. CPU stages support all
 four CPU backends. Placement and backend selection are configured
-separately: stages choose `"auto"`, `"cpu"`, or `"gpu"`, while `buildStructuredRoutine` supplies
+separately: stages choose `"auto"`, `"cpu"`, or `"gpu"`, while `columnarRoutine` supplies
 ordered backend candidates for each target. By default, auto map and reduce stages try GPU then
-CPU, while `toNums` runs on CPU. Adjacent GPU stages remain device-resident; uploads and
-readbacks are inferred from the resolved producer and consumer placements.
+CPU, while callback-based `then` and `output` stages run on CPU. Adjacent GPU stages remain
+device-resident; uploads and readbacks are inferred from the resolved producer and consumer
+placements.
 
 ```ts
 import { asNum, variable } from "lona";
-import { buildStructuredRoutine, column } from "lona-columnar";
+import { columnarRoutine, column } from "lona-columnar";
 
 const x = variable("x");
 const y = variable("y");
 const offset = variable("offset");
 
-const routine = buildStructuredRoutine(
+const routine = columnarRoutine(
   () =>
     column([x, y])
       .map({
@@ -33,7 +34,7 @@ const routine = buildStructuredRoutine(
         order: "tree",
         placement: "cpu",
       })
-      .toNums(([total]) => total!),
+      .output(([total]) => total!),
   {
     placement: "cpu",
     backends: { cpu: "wasm-codegen" },
@@ -54,8 +55,29 @@ routine.dispose();
 A column may contain either `Num` values or one homogeneous `NumStruct` shape. Map and reduce
 callbacks are traced once over formal parameters. External scalar `Num`/`NumStruct`
 dependencies must be declared under `using`; they are evaluated once per routine invocation.
-`toNums` crosses from a column back into an ordinary scalar Num stage. Structured routines use
-an async `eval` surface so GPU stages can be added without API changes.
+`then` runs a whole-column callback whose callback-created `column(...)` is incorporated into
+the same graph and can be followed by more column stages:
+
+```ts
+const expanded = column(values)
+  .then(([a, b]) => column([a!.add(b!), b!.mul(2)]))
+  .map((value) => value.max(0))
+  .sum();
+```
+
+The returned column must be non-empty. `output()` closes the graph. With no callback it returns
+the current column directly and adds no execution stage; a reduced scalar therefore remains on
+the GPU until the final readback:
+
+```ts
+const routine = columnarRoutine(() =>
+  column(values).sum({ placement: "gpu" }).output(),
+);
+const total: number = await routine.evalAsync(vars);
+```
+
+`output(build)` adds a final CPU whole-column scalar callback when post-processing is needed.
+Columnar routines use an async evaluation surface because GPU output requires a readback.
 
 To require a map to run on GPU, set a hard stage placement. Backend selection remains a
 routine-level concern:
@@ -69,15 +91,12 @@ const mapped = column(values).map({
   placement: "gpu",
 });
 
-const routine = buildStructuredRoutine(
-  () => mapped.toNums(([value]) => value!),
-  {
-    backends: {
-      cpu: ["wasm-codegen", "js-codegen"],
-      gpu: ["gpu-codegen"],
-    },
+const routine = columnarRoutine(() => mapped.output(([value]) => value!), {
+  backends: {
+    cpu: ["wasm-codegen", "js-codegen"],
+    gpu: ["gpu-codegen"],
   },
-);
+});
 ```
 
 GPU reductions may use explicit built-ins:
@@ -97,25 +116,27 @@ reductions propagate NaN and define signed-zero min/max behavior.
 Arbitrary reduction callbacks also support GPU tree execution when `associative: true` is
 acknowledged. Their explicit initial value participates as the first tree element, and `using`
 dependencies are uploaded as broadcast uniforms. Ordered `left` reductions remain CPU-only.
-A CPU consumer such as `toNums` causes an inferred device readback. GPU values use f32 while CPU
-stages normally use f64.
+A callback-based `then` or `output` stage causes an inferred device readback. Direct `output()`
+only reads the final result. GPU values use f32 while CPU stages normally use f64.
 
 Placement may be configured by stage kind. Explicit stage placement wins over the kind policy,
 which wins over the default:
 
 ```ts
-const routine = buildStructuredRoutine(() => result, {
+const routine = columnarRoutine(() => result, {
   placement: {
     default: "auto",
     map: "auto",
     reduce: "auto",
-    toNums: "cpu",
+    then: "cpu",
+    output: "cpu",
   },
   auto: {
     targets: {
       map: ["gpu", "cpu"],
       reduce: ["gpu", "cpu"],
-      toNums: ["cpu"],
+      then: ["cpu"],
+      output: ["cpu"],
     },
   },
   backends: {

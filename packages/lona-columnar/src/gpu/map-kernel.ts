@@ -1,8 +1,8 @@
 import type { NumNode } from "lona/internal";
 import type { DeviceBufferSlice } from "lona/internal";
-import { compileStructuredTape } from "../compile-tape";
-import type { StructuredParamBinding, StructuredParamInput } from "../ir";
-import { compileStructuredGpuTapeKernel } from "./tape-kernel";
+import { compileColumnarTape } from "../compile-tape";
+import type { ColumnarParamBinding, ColumnarParamInput } from "../ir";
+import { compileColumnarGpuTapeKernel } from "./tape-kernel";
 
 export interface CompiledGpuMapKernel {
   readonly inputWidth: number;
@@ -20,7 +20,7 @@ export interface CompiledGpuMapKernel {
 }
 
 function mapInputValue(
-  binding: StructuredParamBinding,
+  binding: ColumnarParamBinding,
   source: readonly number[],
   uniforms: readonly number[],
   inputWidth: number,
@@ -51,14 +51,14 @@ function mapInputValue(
     case "reduce-right":
     case "materialized":
       throw new Error(
-        `GPU map kernel cannot bind structured input '${binding.kind}'`,
+        `GPU map kernel cannot bind columnar input '${binding.kind}'`,
       );
   }
 }
 
 /** Pack map inputs in the actual OP_VAR slot order of the compiled tape. */
 export function packGpuMapInputs(
-  tapeInputs: readonly StructuredParamInput[],
+  tapeInputs: readonly ColumnarParamInput[],
   source: readonly number[],
   uniforms: readonly number[],
   inputWidth: number,
@@ -86,11 +86,11 @@ export function packGpuMapInputs(
 
 export function compileGpuMapKernel(
   roots: readonly NumNode[],
-  inputs: readonly StructuredParamInput[],
+  inputs: readonly ColumnarParamInput[],
   inputWidth: number,
   outputWidth: number,
 ): CompiledGpuMapKernel {
-  const compiled = compileStructuredTape(roots, inputs);
+  const compiled = compileColumnarTape(roots, inputs);
   for (const input of compiled.tapeInputs) {
     const kind = input.binding.kind;
     if (kind !== "row" && kind !== "uniform" && kind !== "index") {
@@ -118,7 +118,7 @@ export function compileGpuMapKernel(
         );
     }
   });
-  const gpu = compileStructuredGpuTapeKernel(compiled.tape, {
+  const gpu = compileColumnarGpuTapeKernel(compiled.tape, {
     inputWidth,
     outputWidth,
     uniformWidth,

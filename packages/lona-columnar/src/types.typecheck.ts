@@ -4,7 +4,7 @@ import type {
   Column,
   ColumnFactory,
   ReducedColumn,
-  StructuredValue,
+  ColumnarOutput,
 } from "./types";
 
 interface Triangle extends NumStruct<Triangle> {
@@ -36,7 +36,7 @@ interface Plane extends NumStruct<Plane> {
  * Compile-only API exercise. This function is never called; TypeScript checks
  * callback inference and every assignment below as part of `npm run typecheck`.
  */
-export function structuredColumnTypecheck(
+export function columnarColumnTypecheck(
   column: ColumnFactory,
   nums: readonly Num[],
   triangles: readonly Triangle[],
@@ -97,7 +97,7 @@ export function structuredColumnTypecheck(
     placement: "gpu",
   });
 
-  const output: StructuredValue<readonly Num[]> = totals.toNums({
+  const output: ColumnarOutput<readonly Num[]> = totals.output({
     using: { density, plane },
     build: ([total], { using }) => {
       const safeVolume = total!.volume.max(1e-12);
@@ -111,6 +111,16 @@ export function structuredColumnTypecheck(
     placement: "cpu",
   });
   void output;
+
+  const directReduced: ColumnarOutput<Contribution> = totals.output();
+  const directRows: ColumnarOutput<Triangle | readonly Triangle[]> =
+    triangleColumn.output();
+  const continued: Column<Num> = totals.then(([total]) =>
+    column([total!.volume, total!.mx]),
+  );
+  void directReduced;
+  void directRows;
+  void continued;
 
   // A column cannot mix scalar Nums and NumStruct values.
   // @ts-expect-error heterogeneous scalar/struct columns are rejected
@@ -126,7 +136,7 @@ export function structuredColumnTypecheck(
     },
   });
 
-  totals.toNums({
+  totals.output({
     using: { plane },
     build: ([total], { using }) => {
       const inferredPlane: Plane = using.plane;
