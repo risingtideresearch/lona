@@ -49,6 +49,11 @@ describe("columnar column Phase 1 builder", () => {
     expect(source.shape.width).toBe(1);
     expect(source.roots).toEqual([x.n, y.n]);
     expect(Object.isFrozen(source.roots)).toBe(true);
+
+    const placed = getColumnDefinition(column([x.add(1)], { placement: "gpu" }))
+      .stages[0]!;
+    if (placed.kind !== "source") throw new Error("expected source");
+    expect(placed.requestedPlacement).toBe("gpu");
   });
 
   test("validates NumStruct width and supports an empty shape witness", () => {

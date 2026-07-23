@@ -16,6 +16,7 @@ import {
   type NumBuildResult,
   type ReducedColumn,
   type ReductionOptions,
+  type SourceOptions,
   type StageOptions,
   type StagePlacement,
   type StageUsing,
@@ -478,8 +479,14 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
   }
 }
 
-export function column(values: readonly Num[]): Column<Num>;
-export function column<T extends NumStruct<T>>(values: readonly T[]): Column<T>;
+export function column(
+  values: readonly Num[],
+  options?: SourceOptions,
+): Column<Num>;
+export function column<T extends NumStruct<T>>(
+  values: readonly T[],
+  options?: SourceOptions,
+): Column<T>;
 export function column(
   values: readonly [],
   options: EmptyColumnOptions<Num>,
@@ -490,7 +497,10 @@ export function column<T extends NumStruct<T>>(
 ): Column<T>;
 export function column<T extends ColumnValue>(
   values: readonly T[],
-  options?: { readonly shape: ColumnValue },
+  options?: {
+    readonly shape?: ColumnValue;
+    readonly placement?: StagePlacement;
+  },
 ): Column<T> {
   const copiedValues = Object.freeze([...values]);
   const witness = copiedValues[0] ?? options?.shape;
@@ -510,6 +520,7 @@ export function column<T extends ColumnValue>(
     count: copiedValues.length,
     shape,
     roots: Object.freeze(roots),
+    requestedPlacement: options?.placement,
   });
 
   return new ColumnHandle(builder, source.id, copiedValues.length, shape);

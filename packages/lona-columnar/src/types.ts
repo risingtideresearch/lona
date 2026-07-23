@@ -14,7 +14,8 @@ export type EmptyUsing = Readonly<Record<string, never>>;
 
 export type ExecutionTarget = "cpu" | "gpu";
 export type StagePlacement = ExecutionTarget | "auto";
-export type PlaceableStageKind = "map" | "reduce" | "then" | "output";
+export type PlaceableStageKind =
+  "source" | "map" | "reduce" | "then" | "output";
 
 export type CpuBackendName =
   "js-interp" | "js-codegen" | "wasm-interp" | "wasm-codegen";
@@ -23,6 +24,7 @@ export type BackendPreference<T> = T | readonly T[];
 
 export interface PlacementConfig {
   default?: StagePlacement;
+  source?: StagePlacement;
   map?: StagePlacement;
   reduce?: StagePlacement;
   then?: StagePlacement;
@@ -31,6 +33,7 @@ export interface PlacementConfig {
 
 export interface AutoTargetConfig {
   default?: readonly ExecutionTarget[];
+  source?: readonly ExecutionTarget[];
   map?: readonly ExecutionTarget[];
   reduce?: readonly ExecutionTarget[];
   then?: readonly ExecutionTarget[];
@@ -227,8 +230,13 @@ export interface ReducedColumn<T extends ColumnValue> extends Column<T> {
   readonly length: 1;
 }
 
+/** Options for a materialized source column. */
+export type SourceOptions = StageOptions;
+
 /** Options for constructing an empty struct column. */
-export interface EmptyColumnOptions<T extends ColumnValue> {
+export interface EmptyColumnOptions<
+  T extends ColumnValue,
+> extends SourceOptions {
   readonly shape: T;
 }
 
@@ -237,9 +245,12 @@ export interface EmptyColumnOptions<T extends ColumnValue> {
  * Phase 0 validate inference without publishing a non-functional runtime API.
  */
 export interface ColumnFactory {
-  (values: readonly Num[]): Column<Num>;
+  (values: readonly Num[], options?: SourceOptions): Column<Num>;
 
-  <T extends NumStruct<T>>(values: readonly T[]): Column<T>;
+  <T extends NumStruct<T>>(
+    values: readonly T[],
+    options?: SourceOptions,
+  ): Column<T>;
 
   (values: readonly [], options: EmptyColumnOptions<Num>): Column<Num>;
 

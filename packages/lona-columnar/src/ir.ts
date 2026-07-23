@@ -43,6 +43,7 @@ export interface SourceStage {
   readonly shape: ValueShape;
   /** Flattened row-major scalar roots. */
   readonly roots: readonly NumNode[];
+  readonly requestedPlacement?: StagePlacement;
 }
 
 export interface MapStage {

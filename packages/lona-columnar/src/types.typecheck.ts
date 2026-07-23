@@ -46,7 +46,9 @@ export function columnarColumnTypecheck(
   plane: Plane,
 ): void {
   const scalarColumn: Column<Num> = column(nums);
-  const triangleColumn: Column<Triangle> = column(triangles);
+  const triangleColumn: Column<Triangle> = column(triangles, {
+    placement: "gpu",
+  });
   const emptyContributions: Column<Contribution> = column([], {
     shape: zeroContribution,
   });

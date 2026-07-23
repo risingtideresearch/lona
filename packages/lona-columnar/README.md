@@ -8,9 +8,10 @@ Columnar columns are available through the optional `lona-columnar` package. The
 a map/reduce axis instead of expanding it into one scalar DAG. CPU stages support all
 four CPU backends. Placement and backend selection are configured
 separately: stages choose `"auto"`, `"cpu"`, or `"gpu"`, while `columnarRoutine` supplies
-ordered backend candidates for each target. By default, auto map and reduce stages try GPU then
-CPU, while callback-based `then` and `output` stages run on CPU. Adjacent GPU stages remain
-device-resident; uploads and readbacks are inferred from the resolved producer and consumer
+ordered backend candidates for each target. By default, auto source stages try CPU then GPU,
+map and reduce stages try GPU then CPU, and callback-based `then` and `output` stages run on CPU.
+A GPU source is evaluated directly into device-resident column storage. Adjacent GPU stages
+remain device-resident, and transfers are inferred from resolved producer and consumer
 placements.
 
 ```ts
@@ -23,7 +24,7 @@ const offset = variable("offset");
 
 const routine = columnarRoutine(
   () =>
-    column([x, y])
+    column([x, y], { placement: "cpu" })
       .map({
         using: { offset },
         build: (value, { index, using }) => value.add(using.offset).add(index),
@@ -52,9 +53,16 @@ await routine.evalAsync(
 routine.dispose();
 ```
 
-A column may contain either `Num` values or one homogeneous `NumStruct` shape. Map and reduce
-callbacks are traced once over formal parameters. External scalar `Num`/`NumStruct`
-dependencies must be declared under `using`; they are evaluated once per routine invocation.
+A column may contain either `Num` values or one homogeneous `NumStruct` shape. Its flattened
+source DAG can be placed directly on the GPU without an intermediate readback or column upload:
+
+```ts
+const source = column([x.add(1), y.mul(2)], { placement: "gpu" });
+```
+
+Map and reduce callbacks are traced once over formal parameters. External scalar
+`Num`/`NumStruct` dependencies must be declared under `using`; they are evaluated once per
+routine invocation.
 `then` runs a whole-column callback whose callback-created `column(...)` is incorporated into
 the same graph and can be followed by more column stages:
 
@@ -126,6 +134,7 @@ which wins over the default:
 const routine = columnarRoutine(() => result, {
   placement: {
     default: "auto",
+    source: "auto",
     map: "auto",
     reduce: "auto",
     then: "cpu",
@@ -133,6 +142,7 @@ const routine = columnarRoutine(() => result, {
   },
   auto: {
     targets: {
+      source: ["cpu", "gpu"],
       map: ["gpu", "cpu"],
       reduce: ["gpu", "cpu"],
       then: ["cpu"],

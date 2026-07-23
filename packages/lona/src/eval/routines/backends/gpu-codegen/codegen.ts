@@ -148,6 +148,17 @@ ${lines.join("\n")}
 
 export interface GpuCodegenEval {
   evalBatch(varData: Float32Array, numPoints: number): Promise<Float32Array>;
+  /** @internal Encode directly into caller-owned device storage without readback. */
+  encodeBatchToBuffer(
+    encoder: GPUCommandEncoder,
+    varData: Float32Array,
+    numPoints: number,
+    output: {
+      readonly buffer: GPUBuffer;
+      readonly offset: number;
+      readonly byteLength: number;
+    },
+  ): number;
   /** Total synchronous shader-module and pipeline creation time (ms). */
   shaderCompileMs: number;
   readonly varSlots: VarName[];
@@ -268,6 +279,71 @@ function createGpuCodegenEval(
     });
   }
 
+  function encodeBatchToBuffer(
+    encoder: GPUCommandEncoder,
+    varData: Float32Array,
+    numPoints: number,
+    output: {
+      readonly buffer: GPUBuffer;
+      readonly offset: number;
+      readonly byteLength: number;
+    },
+  ): number {
+    if (!Number.isInteger(numPoints) || numPoints <= 0) {
+      throw new Error(`Invalid GPU codegen batch size: ${numPoints}`);
+    }
+    if (varData.length !== numPoints * numVars) {
+      throw new Error(
+        `GPU codegen expected ${numPoints * numVars} input values, got ${varData.length}`,
+      );
+    }
+    const requiredBytes = numPoints * numRoots * 4;
+    if (output.byteLength < requiredBytes) {
+      throw new Error(
+        `GPU codegen output has ${output.byteLength} bytes; expected ${requiredBytes}`,
+      );
+    }
+    ensureBatchBuffers(numPoints);
+    device.queue.writeBuffer(
+      paramsBuf!,
+      0,
+      new Uint32Array([numPoints, numVars, 0, 0]),
+    );
+    if (varData.byteLength > 0) {
+      device.queue.writeBuffer(
+        varDataBuf!,
+        0,
+        varData.buffer as ArrayBuffer,
+        varData.byteOffset,
+        varData.byteLength,
+      );
+    }
+    const externalBindGroup = device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: paramsBuf! } },
+        { binding: 1, resource: { buffer: varDataBuf! } },
+        { binding: 2, resource: { buffer: scratchBuf! } },
+        {
+          binding: 3,
+          resource: {
+            buffer: output.buffer,
+            offset: output.offset,
+            size: requiredBytes,
+          },
+        },
+      ],
+    });
+    const pass = encoder.beginComputePass();
+    pass.setBindGroup(0, externalBindGroup);
+    for (const pipeline of pipelines) {
+      pass.setPipeline(pipeline);
+      pass.dispatchWorkgroups(Math.ceil(numPoints / WORKGROUP_SIZE));
+    }
+    pass.end();
+    return pipelines.length;
+  }
+
   async function evalBatch(
     varData: Float32Array,
     numPoints: number,
@@ -351,6 +427,7 @@ function createGpuCodegenEval(
 
   return {
     evalBatch,
+    encodeBatchToBuffer,
     shaderCompileMs,
     varSlots: tape.varSlots,
     numRoots,

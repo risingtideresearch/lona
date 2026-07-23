@@ -104,6 +104,38 @@ describe("columnar GPU map", () => {
     routine.dispose();
   });
 
+  gpuTest(
+    "computes an arbitrary source DAG directly on the device",
+    async () => {
+      const x = variableNum("gpu-source-x");
+      const y = variableNum("gpu-source-y");
+      const routine = columnarRoutine(
+        () =>
+          column([x.add(1), y.mul(2)], { placement: "gpu" })
+            .sum({ placement: "gpu" })
+            .output(),
+        { backends: { gpu: "gpu-codegen" } },
+      );
+
+      expect(routine.stages[0]).toMatchObject({
+        kind: "source",
+        placement: "gpu",
+        backend: "gpu-codegen",
+      });
+      await expect(
+        routine.evalAsync(
+          new Map([
+            ["gpu-source-x", 2],
+            ["gpu-source-y", 5],
+          ]),
+        ),
+      ).resolves.toBe(13);
+      expect(routine.lastEvaluationStats?.readbackCount).toBe(1);
+      expect(routine.lastEvaluationStats?.uploadedBytes).toBe(8);
+      routine.dispose();
+    },
+  );
+
   gpuTest("supports all scalar GPU reduction built-ins", async () => {
     const cases = [
       ["sum", 9],

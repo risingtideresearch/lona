@@ -29,6 +29,7 @@ export type {
   ColumnarRoutine,
   Column,
   ReducedColumn,
+  SourceOptions,
   EmptyColumnOptions,
   ColumnFactory,
 } from "./types";

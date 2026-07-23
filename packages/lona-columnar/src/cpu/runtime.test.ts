@@ -394,7 +394,7 @@ describe("columnar CPU runtime", () => {
         backend,
       })),
     ).toEqual([
-      { kind: "source", placement: undefined, backend: undefined },
+      { kind: "source", placement: "cpu", backend: "js-codegen" },
       { kind: "map", placement: "cpu", backend: "js-codegen" },
       { kind: "reduce", placement: "cpu", backend: "js-codegen" },
       { kind: "output", placement: "cpu", backend: "js-codegen" },
@@ -452,6 +452,7 @@ describe("columnar CPU runtime", () => {
 
     expect(checkpoints).toEqual([
       "lona:columnar:compile:start",
+      "lona:columnar:source:0:cpu:js-interp:compile",
       "lona:columnar:map:1:cpu:js-interp:compile",
       "lona:columnar:output:2:cpu:js-interp:compile",
       "lona:columnar:compile:done",

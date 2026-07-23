@@ -1,4 +1,12 @@
-import { KIND_LIT, LiteralNum, type NumNode } from "lona/internal";
+import {
+  compileGpuCodegenFromTape,
+  compileTape,
+  KIND_LIT,
+  LiteralNum,
+  type GpuCodegenEval,
+  type NumNode,
+  type VarName,
+} from "lona/internal";
 import {
   compileValueRoutine,
   type BackendName,
@@ -15,6 +23,7 @@ import {
 import type {
   MapStage,
   ReduceStage,
+  SourceStage,
   ResultShape,
   ScalarBindings,
   ColumnarDefinition,
@@ -49,6 +58,8 @@ interface CompiledStage {
   readonly placement?: ExecutionTarget;
   readonly backend?: BackendName;
   readonly cpuKernel?: CompiledCpuKernel;
+  readonly sourceRoutine?: ValueRoutine | MultiValueRoutine;
+  readonly gpuSource?: GpuCodegenEval;
   readonly gpuMapKernel?: CompiledGpuMapKernel;
   readonly gpuReduceKernel?: CompiledGpuReduceKernel;
   readonly uniformGroup?: number;
@@ -68,6 +79,11 @@ function normalizeRoutineResult(
 ): number[] {
   const result = routine.eval(vars);
   return typeof result === "number" ? [result] : result;
+}
+
+function packVarSlots(vars: VarMap, slots: readonly VarName[]): Float32Array {
+  const values = vars as Map<VarName, number>;
+  return Float32Array.from(slots, (slot) => values.get(slot) ?? 0);
 }
 
 function preference<T>(
@@ -119,8 +135,8 @@ function configuredGpuBackends(
   return backends;
 }
 
-type ExecutableStage = MapStage | ReduceStage | WholeColumnStage;
-type PlacementKey = "map" | "reduce" | "then" | "output";
+type ExecutableStage = SourceStage | MapStage | ReduceStage | WholeColumnStage;
+type PlacementKey = "source" | "map" | "reduce" | "then" | "output";
 
 function placementKey(stage: ExecutableStage): PlacementKey {
   return stage.kind;
@@ -144,7 +160,11 @@ function stageTargets(
   if (placement !== "auto") return [placement];
   const configured = opts.auto?.targets;
   const defaults: readonly ExecutionTarget[] =
-    stage.kind === "then" || stage.kind === "output" ? ["cpu"] : ["gpu", "cpu"];
+    stage.kind === "source"
+      ? ["cpu", "gpu"]
+      : stage.kind === "then" || stage.kind === "output"
+        ? ["cpu"]
+        : ["gpu", "cpu"];
   const targets = preference(
     configured?.[placementKey(stage)] ?? configured?.default,
     defaults,
@@ -159,7 +179,7 @@ function stageTargets(
 }
 
 function gpuUnsupportedReason(stage: ExecutableStage): string | null {
-  if (stage.kind === "map") return null;
+  if (stage.kind === "source" || stage.kind === "map") return null;
   if (stage.kind !== "reduce") return "whole-column stages execute on CPU";
   if (!stage.associative || stage.order !== "tree") {
     return "GPU reductions require associative: true and tree order";
@@ -180,7 +200,7 @@ function gatherScalarRoots(definition: ColumnarDefinition): NumNode[] {
 
   for (const stage of definition.stages) {
     if (stage.kind === "source") {
-      add(stage.roots);
+      continue;
     } else if (stage.kind === "map") {
       add(stage.using.roots);
     } else if (stage.kind === "reduce") {
@@ -411,6 +431,15 @@ function compileStages(
       `lona:columnar:${stage.kind}:${stage.id}:${target}:${backend}:compile`,
     );
     if (target === "gpu") {
+      if (stage.kind === "source") {
+        const tape = compileTape([...stage.roots]);
+        return {
+          stage,
+          placement: "gpu",
+          backend,
+          gpuSource: tape ? compileGpuCodegenFromTape(tape) : undefined,
+        };
+      }
       if (stage.kind === "map") {
         return {
           stage,
@@ -444,6 +473,21 @@ function compileStages(
     }
 
     const cpuBackend = backend as CpuBackendName;
+    if (stage.kind === "source") {
+      const sourceRoutine =
+        stage.roots.length > 0
+          ? compileValueRoutine([...stage.roots], { backend: cpuBackend })
+          : null;
+      if (stage.roots.length > 0 && !sourceRoutine) {
+        throw new Error("failed to compile source DAG");
+      }
+      return {
+        stage,
+        placement: "cpu",
+        backend,
+        sourceRoutine: sourceRoutine ?? undefined,
+      };
+    }
     if (stage.kind === "map" || stage.kind === "reduce") {
       return {
         stage,
@@ -466,11 +510,6 @@ function compileStages(
 
   try {
     for (const stage of definition.stages) {
-      if (stage.kind === "source") {
-        compiled.push({ stage });
-        continue;
-      }
-
       const placement = effectiveStagePlacement(stage, opts);
       const targets = stageTargets(stage, placement, opts);
       const failures: string[] = [];
@@ -522,6 +561,8 @@ function compileStages(
   } catch (error) {
     for (const stage of compiled) {
       stage.cpuKernel?.dispose();
+      stage.sourceRoutine?.dispose?.();
+      stage.gpuSource?.destroy();
       stage.gpuMapKernel?.dispose();
       stage.gpuReduceKernel?.dispose();
     }
@@ -543,7 +584,7 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
     const failures: string[] = [];
     for (const backend of cpuBackends) {
       opts.diagnosticCheckpoint?.(
-        `lona:columnar:source:cpu:${backend}:compile`,
+        `lona:columnar:scalar:cpu:${backend}:compile`,
       );
       try {
         scalarRoutine = compileValueRoutine(scalarRoots, { backend });
@@ -578,6 +619,8 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
     scalarRoutine?.dispose?.();
     for (const compiled of compiledStages) {
       compiled.cpuKernel?.dispose();
+      compiled.sourceRoutine?.dispose?.();
+      compiled.gpuSource?.destroy();
       compiled.gpuMapKernel?.dispose();
       compiled.gpuReduceKernel?.dispose();
     }
@@ -594,7 +637,21 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
       }),
     ),
   );
-  const varSlots = Object.freeze([...(scalarRoutine?.varSlots ?? [])]);
+  const allVarSlots: VarName[] = [];
+  const seenVarSlots = new Set<VarName>();
+  const addVarSlots = (slots: readonly VarName[]): void => {
+    for (const slot of slots) {
+      if (seenVarSlots.has(slot)) continue;
+      seenVarSlots.add(slot);
+      allVarSlots.push(slot);
+    }
+  };
+  for (const compiled of compiledStages) {
+    addVarSlots(compiled.sourceRoutine?.varSlots ?? []);
+    addVarSlots(compiled.gpuSource?.varSlots ?? []);
+  }
+  addVarSlots(scalarRoutine?.varSlots ?? []);
+  const varSlots = Object.freeze(allVarSlots);
   const numVars = varSlots.length;
   let disposed = false;
   let lastEvaluationStats: ColumnarEvaluationStats | null = null;
@@ -769,10 +826,46 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
           const stageStart = performance.now();
           try {
             if (stage.kind === "source") {
-              stageValues.set(stage.id, {
-                location: "host",
-                values: valuesForRoots(stage.roots, scalarValues),
-              });
+              if (stage.roots.length === 0) {
+                stageValues.set(stage.id, { location: "host", values: [] });
+              } else if (compiled.gpuSource) {
+                const outputSlice = createBuffer(
+                  stage.roots.length * 4,
+                  GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+                );
+                const varData = packVarSlots(vars, compiled.gpuSource.varSlots);
+                encoder ??= requireGpuDevice().createCommandEncoder();
+                dispatchCount += compiled.gpuSource.encodeBatchToBuffer(
+                  encoder,
+                  varData,
+                  1,
+                  outputSlice,
+                );
+                uploadedBytes += varData.byteLength;
+                if (varData.byteLength > 0) {
+                  opts.diagnosticCheckpoint?.(
+                    `lona:columnar:transfer:${stage.id}:host-to-device`,
+                  );
+                  opts.diagnosticCheckpoint?.(
+                    `lona:columnar:cost:upload-bytes:${varData.byteLength}`,
+                  );
+                }
+                stageValues.set(stage.id, {
+                  location: "device",
+                  slice: outputSlice,
+                  count: stage.count,
+                  width: stage.shape.width,
+                });
+              } else if (compiled.sourceRoutine) {
+                stageValues.set(stage.id, {
+                  location: "host",
+                  values: normalizeRoutineResult(compiled.sourceRoutine, vars),
+                });
+              } else {
+                throw new Error(
+                  `columnar source stage ${stage.id} has no evaluator`,
+                );
+              }
               continue;
             }
 
@@ -984,6 +1077,8 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
       scalarRoutine?.dispose?.();
       for (const compiled of compiledStages) {
         compiled.cpuKernel?.dispose();
+        compiled.sourceRoutine?.dispose?.();
+        compiled.gpuSource?.destroy();
         compiled.gpuMapKernel?.dispose();
         compiled.gpuReduceKernel?.dispose();
       }
