@@ -21,6 +21,7 @@
 
     "paths": {
       "lona": ["./packages/lona/src/main.ts"],
+      "lona/internal": ["./packages/lona/src/internal.ts"],
       "lona-geom": ["./packages/lona-geom/src/main.ts"],
       "lona-curves": ["./packages/lona-curves/src/main.ts"]
     }

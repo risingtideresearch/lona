@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { createLibraryConfig } from "../../config/vite-library.js";
 
 // The workspace tsconfig maps the bare specifier "lona" to that package's
@@ -18,6 +19,20 @@ export default createLibraryConfig({
   packageDir: import.meta.dirname,
   name: "lona-columnar",
   external: ["lona", "lona/internal"],
+  // Unlike the other packages we deliberately don't alias "lona" for the
+  // build (see above), so nothing resolves the bare specifier until lona's
+  // dist exists. Tests must not depend on a prior build, so alias to source
+  // for vitest only.
+  testAlias: [
+    {
+      find: /^lona\/internal$/,
+      replacement: resolve(import.meta.dirname, "../lona/src/internal.ts"),
+    },
+    {
+      find: /^lona$/,
+      replacement: resolve(import.meta.dirname, "../lona/src/main.ts"),
+    },
+  ],
   dtsBeforeWriteFile: (_filePath, content) => {
     if (!LONA_SOURCE_IMPORT.test(content)) return;
     LONA_SOURCE_IMPORT.lastIndex = 0;

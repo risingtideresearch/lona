@@ -881,8 +881,9 @@ function compileUnblockedColumnarGradRoutine(
           return {
             staging,
             copy: () => {
-              encoder ??= requireGpuDevice().createCommandEncoder();
-              encoder.copyBufferToBuffer(
+              const enc = (encoder ??=
+                requireGpuDevice().createCommandEncoder());
+              enc.copyBufferToBuffer(
                 slice.buffer,
                 slice.offset,
                 staging,
