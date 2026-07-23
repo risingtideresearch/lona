@@ -5,7 +5,11 @@ import { compileTape } from "./tape";
 import { compileForwardAutodiff } from "./routines/backends/js-interp/tape-eval";
 import { compileWasmForwardAutodiff } from "./routines/backends/wasm-interp/tape-eval";
 import { compileWasmGradFromTape } from "./routines/backends/wasm-codegen/codegen";
-import { compileGradRoutine, type GradRoutine } from "./routines";
+import {
+  compileGradRoutine,
+  compileJvpRoutineFromTape,
+  type GradRoutine,
+} from "./routines";
 
 const x = variableNum("x" as VarName);
 const y = variableNum("y" as VarName);
@@ -39,6 +43,39 @@ function refRoutine(node: import("../core/tree").NumNode): GradRoutine {
 const expr = x.mul(x).add(x.mul(y).mul(3)).add(y.sin());
 
 describe("Forward-mode autodiff (JS tape)", () => {
+  test.each([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ] as const)(
+    "backend=%s applies arbitrary seeds to multiple roots",
+    (backend) => {
+      const tape = compileTape([x.mul(y).n, x.add(y).n])!;
+      const jvp = compileJvpRoutineFromTape(tape, 2, { backend });
+      const result = jvp.evalPacked(
+        new Float64Array([2, 3]),
+        // x carries [4, 5], y carries [6, 7].
+        new Float64Array([4, 5, 6, 7]),
+      );
+
+      expect(result.vals).toEqual([6, 5]);
+      expect(result.tangents[0]).toEqual([24, 29]);
+      expect(result.tangents[1]![0]).toBeCloseTo(10, 10);
+      expect(result.tangents[1]![1]).toBeCloseTo(12, 10);
+    },
+  );
+
+  test("validates packed seed dimensions", () => {
+    const tape = compileTape([x.add(y).n])!;
+    const jvp = compileJvpRoutineFromTape(tape, 2, {
+      backend: "js-interp",
+    });
+    expect(() =>
+      jvp.evalPacked(new Float64Array([2, 3]), new Float64Array([1])),
+    ).toThrow(/expected 4 seeds/);
+  });
+
   test("matches symbolic gradient", () => {
     const tape = compileTape([expr.n])!;
     const fwdFn = compileForwardAutodiff(tape, diffVars);

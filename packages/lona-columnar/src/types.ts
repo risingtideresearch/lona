@@ -1,4 +1,12 @@
-import type { BackendName, Num, NumStruct, VarMap, VarName } from "lona";
+import type {
+  BackendName,
+  GradientResult,
+  JacobianResult,
+  Num,
+  NumStruct,
+  VarMap,
+  VarName,
+} from "lona";
 
 /** A scalar symbolic value or a fixed-width value that can flatten to Nums. */
 export type ColumnValue = Num | NumStruct<unknown>;
@@ -19,7 +27,13 @@ export type PlaceableStageKind =
 
 export type CpuBackendName =
   "js-interp" | "js-codegen" | "wasm-interp" | "wasm-codegen";
-export type GpuBackendName = "gpu-codegen";
+/**
+ * `gpu-interp` (the WGSL tape-interpreter backend from `lona` core) is only
+ * implemented for the `source` stage here — it round-trips through a host
+ * array like a CPU source would, rather than writing straight into a device
+ * buffer, so `map`/`reduce` still require `gpu-codegen`.
+ */
+export type GpuBackendName = "gpu-codegen" | "gpu-interp";
 export type ColumnarBackendName = CpuBackendName | GpuBackendName;
 export type BackendPreference<T> = T | readonly T[];
 
@@ -141,6 +155,19 @@ export interface ColumnarEvaluationStats {
   readonly readbackCount: number;
   readonly evaluationMilliseconds: number;
   readonly stageTimings: readonly ColumnarStageTiming[];
+}
+
+export type ColumnarAutodiffResult = GradientResult | JacobianResult;
+
+/** Experimental forward-autodiff columnar routine. */
+export interface ColumnarGradRoutine {
+  readonly shape: "grad" | "jacobian";
+  readonly diffVars: readonly VarName[];
+  readonly varSlots: readonly VarName[];
+  readonly numVars: number;
+  readonly numRoots: number;
+  evalAsync(vars: VarMap): Promise<ColumnarAutodiffResult>;
+  dispose(): void;
 }
 
 export interface ColumnarRoutine<R extends NumBuildResult> {

@@ -3,7 +3,7 @@ import type { NumStruct } from "lona";
 import { Num, asNum, variableNum } from "lona";
 import { isGpuAvailable } from "lona/internal";
 import type { CpuBackendName } from "../types";
-import { columnarRoutine, column } from "../api";
+import { columnarGradRoutine, columnarRoutine, column } from "../api";
 
 class Pair implements NumStruct<Pair> {
   constructor(
@@ -500,6 +500,151 @@ describe("columnar CPU runtime", () => {
       "lona:columnar:compile:done",
     ]);
     routine.dispose();
+  });
+
+  test("evaluates source-only columnar gradients with identity seeds", async () => {
+    const x = variableNum("jvp-source-x");
+    const y = variableNum("jvp-source-y");
+    const routine = columnarGradRoutine(
+      () => column([x.mul(y), x.add(y)]).output(),
+      ["jvp-source-x", "jvp-source-y", "absent"],
+      { placement: "cpu", backends: { cpu: "js-interp" } },
+    );
+
+    expect(routine.shape).toBe("jacobian");
+    await expect(
+      routine.evalAsync(
+        new Map([
+          ["jvp-source-x", 2],
+          ["jvp-source-y", 3],
+        ]),
+      ),
+    ).resolves.toEqual({
+      vals: [6, 5],
+      jacobian: [
+        [3, 2, 0],
+        [1, 1, 0],
+      ],
+    });
+  });
+
+  test("evaluates a single flattened source root as a gradient", async () => {
+    const x = variableNum("jvp-single-x");
+    const routine = columnarGradRoutine(
+      () => column([x.square()]).output(),
+      ["jvp-single-x"],
+    );
+    await expect(
+      routine.evalAsync(new Map([["jvp-single-x", 4]])),
+    ).resolves.toEqual({ val: 16, gradient: [8] });
+  });
+
+  test.each(CPU_BACKENDS)(
+    "columnar autodiff propagates map/reduce/output tangents on %s",
+    async (backend) => {
+      const names = [
+        `jvp-chain-x-${backend}`,
+        `jvp-chain-y-${backend}`,
+        `jvp-chain-scale-${backend}`,
+        `jvp-chain-offset-${backend}`,
+      ];
+      const x = variableNum(names[0]!);
+      const y = variableNum(names[1]!);
+      const scale = variableNum(names[2]!);
+      const offset = variableNum(names[3]!);
+      const routine = columnarGradRoutine(
+        () =>
+          column([x, y])
+            .map({
+              using: { scale },
+              build: (value, { index, using }) =>
+                value.mul(using.scale).add(index),
+              placement: "cpu",
+              backend,
+            })
+            .sum({ placement: "cpu", backend })
+            .output({
+              using: { offset },
+              build: ([total], { using }) => total!.mul(using.offset),
+              placement: "cpu",
+              backend,
+            }),
+        names,
+        { placement: "cpu", backends: { cpu: backend } },
+      );
+
+      const result = await routine.evalAsync(
+        new Map([
+          [names[0]!, 2],
+          [names[1]!, 3],
+          [names[2]!, 4],
+          [names[3]!, 5],
+        ]),
+      );
+      expect(result).toMatchObject({ val: 105 });
+      if (!("gradient" in result)) throw new Error("expected gradient");
+      expect(result.gradient[0]).toBeCloseTo(20, 8);
+      expect(result.gradient[1]).toBeCloseTo(20, 8);
+      expect(result.gradient[2]).toBeCloseTo(25, 8);
+      expect(result.gradient[3]).toBeCloseTo(21, 8);
+    },
+  );
+
+  test("columnar autodiff includes a reduction initial value's tangents", async () => {
+    const x = variableNum("jvp-reduce-x");
+    const y = variableNum("jvp-reduce-y");
+    const initial = variableNum("jvp-reduce-initial");
+    const routine = columnarGradRoutine(
+      () =>
+        column([x, y])
+          .reduce((left, right) => left.mul(right), initial, {
+            associative: false,
+            order: "left",
+            placement: "cpu",
+            backend: "js-interp",
+          })
+          .output(),
+      ["jvp-reduce-x", "jvp-reduce-y", "jvp-reduce-initial"],
+      { placement: "cpu", backends: { cpu: "js-interp" } },
+    );
+    await expect(
+      routine.evalAsync(
+        new Map([
+          ["jvp-reduce-x", 2],
+          ["jvp-reduce-y", 3],
+          ["jvp-reduce-initial", 4],
+        ]),
+      ),
+    ).resolves.toEqual({ val: 24, gradient: [12, 8, 6] });
+  });
+
+  test("columnar autodiff propagates through then and multiple outputs", async () => {
+    const x = variableNum("jvp-then-x");
+    const y = variableNum("jvp-then-y");
+    const routine = columnarGradRoutine(
+      () =>
+        column([x, y])
+          .then(([left, right]) =>
+            column([left!.mul(right!), left!.add(right!)]),
+          )
+          .output(),
+      ["jvp-then-x", "jvp-then-y"],
+      { placement: "cpu", backends: { cpu: "js-interp" } },
+    );
+    await expect(
+      routine.evalAsync(
+        new Map([
+          ["jvp-then-x", 2],
+          ["jvp-then-y", 3],
+        ]),
+      ),
+    ).resolves.toEqual({
+      vals: [6, 5],
+      jacobian: [
+        [3, 2],
+        [1, 1],
+      ],
+    });
   });
 
   test("debug/select operations survive parameter variable binding", async () => {

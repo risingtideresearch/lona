@@ -6,6 +6,7 @@ import {
   evalTape,
   compileForwardAutodiff,
   compileForwardAutodiffMulti,
+  compileSeededJvp,
 } from "./tape-eval";
 import { registerBackend } from "../../backend";
 import type { VarMap } from "../../types";
@@ -43,6 +44,21 @@ registerBackend({
         kind: "sync-grad",
         diffVars,
         eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
+      },
+    };
+  },
+
+  compileJvp(tape, numDirections) {
+    const evalPacked = compileSeededJvp(tape, numDirections);
+    return {
+      varSlots: tape.varSlots,
+      numVars: tape.numVars,
+      backend: "js-interp",
+      kernel: {
+        kind: "sync-jvp",
+        numRoots: tape.rootIndices.length,
+        numDirections,
+        evalPacked,
       },
     };
   },

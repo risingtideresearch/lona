@@ -1,4 +1,4 @@
-export { column, columnarRoutine } from "./api";
+export { column, columnarRoutine, columnarGradRoutine } from "./api";
 export type {
   ColumnValue,
   ExternalNumValue,
@@ -24,6 +24,8 @@ export type {
   ColumnarOutput,
   ConcreteResult,
   ColumnarRoutineOptions,
+  ColumnarAutodiffResult,
+  ColumnarGradRoutine,
   ColumnarStageInfo,
   ColumnarStageTiming,
   ColumnarEvaluationStats,

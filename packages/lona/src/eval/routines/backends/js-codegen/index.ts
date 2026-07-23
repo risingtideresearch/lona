@@ -3,7 +3,7 @@
  * Value / multi-value shapes are native; grad / jacobian via symbolic route.
  */
 import type { VarName } from "../../../../core/tree";
-import { compileFunctionFromTape } from "./codegen";
+import { compileFunctionFromTape, compileJvpFunctionFromTape } from "./codegen";
 import { registerBackend } from "../../backend";
 import type { VarMap } from "../../types";
 import {
@@ -14,6 +14,20 @@ import {
 registerBackend({
   name: "js-codegen",
   supported: new Set(["value"]),
+
+  compileJvp(tape, numDirections) {
+    return {
+      varSlots: tape.varSlots,
+      numVars: tape.numVars,
+      backend: "js-codegen",
+      kernel: {
+        kind: "sync-jvp",
+        numRoots: tape.rootIndices.length,
+        numDirections,
+        evalPacked: compileJvpFunctionFromTape(tape, numDirections),
+      },
+    };
+  },
 
   compileValue(tape) {
     const numRoots = tape.rootIndices.length;

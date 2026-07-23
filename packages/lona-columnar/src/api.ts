@@ -1,9 +1,10 @@
 import { asNum, Num } from "lona";
-import type { NumStruct } from "lona";
+import type { NumStruct, VarName } from "lona";
 import { ColumnarBuilder, type ColumnarDefinition } from "./ir";
 import { emptyUsing, shapeOfValue, type ValueShape } from "./shape";
 import { traceMap, traceReduce, traceWholeColumn } from "./trace";
 import { compileColumnarRoutine } from "./runtime";
+import { compileColumnarGradRoutine } from "./autodiff";
 import {
   COLUMNAR_OUTPUT_RESULT,
   type BuiltInReductionOptions,
@@ -22,6 +23,7 @@ import {
   type StageUsing,
   type ColumnarRoutineOptions,
   type ColumnarRoutine,
+  type ColumnarGradRoutine,
   type ColumnarOutput,
   type UsingContext,
 } from "./types";
@@ -562,4 +564,17 @@ export function columnarRoutine<R extends NumBuildResult>(
   opts?: ColumnarRoutineOptions,
 ): ColumnarRoutine<R> {
   return compileColumnarRoutine<R>(getColumnarDefinition(build()), opts);
+}
+
+/** Compile an experimental CPU forward-autodiff columnar routine. */
+export function columnarGradRoutine<R extends NumBuildResult>(
+  build: () => ColumnarOutput<R>,
+  diffVars: readonly VarName[],
+  opts?: ColumnarRoutineOptions,
+): ColumnarGradRoutine {
+  return compileColumnarGradRoutine(
+    getColumnarDefinition(build()),
+    diffVars,
+    opts,
+  );
 }

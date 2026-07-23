@@ -16,7 +16,9 @@ export type { BackendName } from "./backend";
 export {
   compileValueRoutine,
   compileValueRoutineFromTape,
+  compileJvpRoutineFromTape,
   compileGradRoutine,
+  type SeededJvpRoutine,
   type CompileOpts,
   type CompileValueTapeOpts,
 } from "./compile";

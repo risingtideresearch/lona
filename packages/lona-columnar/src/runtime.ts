@@ -72,7 +72,12 @@ const CPU_BACKENDS: ReadonlySet<string> = new Set([
   "wasm-interp",
   "wasm-codegen",
 ]);
-const GPU_BACKENDS: ReadonlySet<string> = new Set(["gpu-codegen"]);
+const GPU_BACKENDS: ReadonlySet<string> = new Set([
+  "gpu-codegen",
+  "gpu-interp",
+]);
+/** `gpu-interp` is only wired up for the `source` stage (see `types.ts`). */
+const GPU_MAP_REDUCE_BACKENDS: ReadonlySet<string> = new Set(["gpu-codegen"]);
 
 function backendTarget(backend: ColumnarBackendName): ExecutionTarget {
   if (CPU_BACKENDS.has(backend)) return "cpu";
@@ -85,6 +90,16 @@ function normalizeRoutineResult(
   vars: VarMap,
 ): number[] {
   const result = routine.eval(vars);
+  return typeof result === "number" ? [result] : result;
+}
+
+/** Like `normalizeRoutineResult`, but for backends (e.g. `gpu-interp`) whose
+ * kernel is async-only, where sync `.eval()` throws. */
+async function normalizeRoutineResultAsync(
+  routine: ValueRoutine | MultiValueRoutine,
+  vars: VarMap,
+): Promise<number[]> {
+  const result = await routine.evalAsync(vars);
   return typeof result === "number" ? [result] : result;
 }
 
@@ -439,6 +454,21 @@ function compileStages(
     );
     if (target === "gpu") {
       if (stage.kind === "source") {
+        if (backend === "gpu-interp") {
+          const sourceRoutine =
+            stage.roots.length > 0
+              ? compileValueRoutine([...stage.roots], { backend: "gpu-interp" })
+              : null;
+          if (stage.roots.length > 0 && !sourceRoutine) {
+            throw new Error("failed to compile gpu-interp source DAG");
+          }
+          return {
+            stage,
+            placement: "gpu",
+            backend,
+            sourceRoutine: sourceRoutine ?? undefined,
+          };
+        }
         const tape = compileTape([...stage.roots]);
         return {
           stage,
@@ -446,6 +476,11 @@ function compileStages(
           backend,
           gpuSource: tape ? compileGpuCodegenFromTape(tape) : undefined,
         };
+      }
+      if (!GPU_MAP_REDUCE_BACKENDS.has(backend)) {
+        throw new Error(
+          `columnar ${stage.kind} stage does not support GPU backend '${backend}' — only 'gpu-codegen' is implemented for map/reduce`,
+        );
       }
       if (stage.kind === "map") {
         return {
@@ -878,10 +913,14 @@ export function compileColumnarRoutine<R extends NumBuildResult>(
                   width: stage.shape.width,
                 });
               } else if (compiled.sourceRoutine) {
-                stageValues.set(stage.id, {
-                  location: "host",
-                  values: normalizeRoutineResult(compiled.sourceRoutine, vars),
-                });
+                const values =
+                  compiled.backend === "gpu-interp"
+                    ? await normalizeRoutineResultAsync(
+                        compiled.sourceRoutine,
+                        vars,
+                      )
+                    : normalizeRoutineResult(compiled.sourceRoutine, vars);
+                stageValues.set(stage.id, { location: "host", values });
               } else {
                 throw new Error(
                   `columnar source stage ${stage.id} has no evaluator`,

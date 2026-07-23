@@ -34,6 +34,8 @@ export { compileTape, type CompiledTape } from "./eval/tape";
 export {
   compileValueRoutine,
   compileValueRoutineFromTape,
+  compileJvpRoutineFromTape,
+  type SeededJvpRoutine,
   type BackendName,
   type MultiValueRoutine,
   type ValueRoutine,
