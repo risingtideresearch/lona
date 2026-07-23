@@ -288,12 +288,11 @@ export type ForwardAutodiffMultiFn = (
  */
 function compileForwardPass(
   tape: CompiledTape,
-  diffVars: VarName[],
+  numDiff: number,
 ): {
-  runForward: (vars: Map<VarName, number>) => void;
+  runForwardSeeded: (values: Float64Array, seeds: Float64Array) => void;
   duals: Float64Array;
   stride: number;
-  numDiff: number;
 } {
   const {
     opcodes,
@@ -304,30 +303,13 @@ function compileForwardPass(
     numVars: tapeNumVars,
   } = tape;
   const tapeLen = opcodes.length;
-  const numDiff = diffVars.length;
   const stride = 1 + numDiff;
-
-  const varToDiffIdx = new Int32Array(varSlots.length).fill(-1);
-  for (let d = 0; d < numDiff; d++) {
-    for (let s = 0; s < tapeNumVars; s++) {
-      if (varSlots[s] === diffVars[d]) {
-        varToDiffIdx[s] = d;
-        break;
-      }
-    }
-  }
 
   const duals = new Float64Array(tapeLen * stride);
   const varValues = new Float64Array(varSlots.length);
+  let activeSeeds = new Float64Array(0);
 
-  const runForward = (vars: Map<VarName, number>): void => {
-    for (let v = 0; v < tapeNumVars; v++) {
-      varValues[v] = vars.get(varSlots[v]!) ?? 0;
-    }
-    for (let v = tapeNumVars; v < varSlots.length; v++) {
-      varValues[v] = 0;
-    }
-
+  const execute = (): void => {
     for (let i = 0; i < tapeLen; i++) {
       const op = opcodes[i]!;
       const base = i * stride;
@@ -341,9 +323,10 @@ function compileForwardPass(
         case OP_VAR: {
           const slot = argA[i]!;
           duals[base] = varValues[slot]!;
-          for (let d = 0; d < numDiff; d++) duals[base + 1 + d] = 0;
-          const di = varToDiffIdx[slot]!;
-          if (di >= 0) duals[base + 1 + di] = 1;
+          for (let d = 0; d < numDiff; d++) {
+            duals[base + 1 + d] =
+              slot < tapeNumVars ? activeSeeds[slot * numDiff + d]! : 0;
+          }
           break;
         }
 
@@ -637,7 +620,62 @@ function compileForwardPass(
     }
   };
 
-  return { runForward, duals, stride, numDiff };
+  const runForwardSeeded = (
+    values: Float64Array,
+    seeds: Float64Array,
+  ): void => {
+    if (values.length !== tapeNumVars) {
+      throw new Error(
+        `seeded JVP expected ${tapeNumVars} values, got ${values.length}`,
+      );
+    }
+    if (seeds.length !== tapeNumVars * numDiff) {
+      throw new Error(
+        `seeded JVP expected ${tapeNumVars * numDiff} seeds, got ${seeds.length}`,
+      );
+    }
+    varValues.fill(0);
+    varValues.set(values);
+    activeSeeds = seeds;
+    execute();
+  };
+
+  return { runForwardSeeded, duals, stride };
+}
+
+/** Compile a multi-root tape JVP accepting arbitrary packed tangent seeds. */
+export function compileSeededJvp(
+  tape: CompiledTape,
+  numDirections: number,
+): (
+  values: Float64Array,
+  seeds: Float64Array,
+) => {
+  vals: number[];
+  tangents: number[][];
+} {
+  if (!Number.isInteger(numDirections) || numDirections < 0) {
+    throw new Error(
+      `seeded JVP direction count must be a non-negative integer, got ${numDirections}`,
+    );
+  }
+  const { runForwardSeeded, duals, stride } = compileForwardPass(
+    tape,
+    numDirections,
+  );
+  return (values, seeds) => {
+    runForwardSeeded(values, seeds);
+    const vals = new Array<number>(tape.rootIndices.length);
+    const tangents: number[][] = [];
+    for (let root = 0; root < tape.rootIndices.length; root++) {
+      const base = tape.rootIndices[root]! * stride;
+      vals[root] = duals[base]!;
+      tangents.push(
+        Array.from(duals.subarray(base + 1, base + 1 + numDirections)),
+      );
+    }
+    return { vals, tangents };
+  };
 }
 
 /**
@@ -647,20 +685,11 @@ export function compileForwardAutodiff(
   tape: CompiledTape,
   diffVars: VarName[],
 ): ForwardAutodiffFn {
-  const { runForward, duals, stride, numDiff } = compileForwardPass(
-    tape,
-    diffVars,
-  );
-  const rootIndex = tape.rootIndices[0];
-
+  const jvp = compileSeededJvp(tape, diffVars.length);
+  const inputs = compileIdentityInputs(tape, diffVars);
   return (vars: Map<VarName, number>): GradientResult => {
-    runForward(vars);
-    const rBase = rootIndex * stride;
-    const gradient = new Array<number>(numDiff);
-    for (let d = 0; d < numDiff; d++) {
-      gradient[d] = duals[rBase + 1 + d]!;
-    }
-    return { val: duals[rBase]!, gradient };
+    const result = jvp(inputs.values(vars), inputs.seeds);
+    return { val: result.vals[0]!, gradient: result.tangents[0]! };
   };
 }
 
@@ -673,26 +702,32 @@ export function compileForwardAutodiffMulti(
   tape: CompiledTape,
   diffVars: VarName[],
 ): ForwardAutodiffMultiFn {
-  const { runForward, duals, stride, numDiff } = compileForwardPass(
-    tape,
-    diffVars,
-  );
-  const rootIndices = tape.rootIndices;
-  const numRoots = rootIndices.length;
-
+  const jvp = compileSeededJvp(tape, diffVars.length);
+  const inputs = compileIdentityInputs(tape, diffVars);
   return (vars: Map<VarName, number>): JacobianResult => {
-    runForward(vars);
-    const vals = new Array<number>(numRoots);
-    const jacobian: number[][] = [];
-    for (let r = 0; r < numRoots; r++) {
-      const rBase = rootIndices[r]! * stride;
-      vals[r] = duals[rBase]!;
-      const row = new Array<number>(numDiff);
-      for (let d = 0; d < numDiff; d++) {
-        row[d] = duals[rBase + 1 + d]!;
-      }
-      jacobian.push(row);
-    }
-    return { vals, jacobian };
+    const result = jvp(inputs.values(vars), inputs.seeds);
+    return { vals: result.vals, jacobian: result.tangents };
+  };
+}
+
+function compileIdentityInputs(
+  tape: CompiledTape,
+  diffVars: readonly VarName[],
+): {
+  values(vars: Map<VarName, number>): Float64Array;
+  seeds: Float64Array;
+} {
+  const seeds = new Float64Array(tape.numVars * diffVars.length);
+  for (let input = 0; input < tape.numVars; input++) {
+    const direction = diffVars.indexOf(tape.varSlots[input]!);
+    if (direction >= 0) seeds[input * diffVars.length + direction] = 1;
+  }
+  return {
+    values: (vars) =>
+      Float64Array.from(
+        tape.varSlots.slice(0, tape.numVars),
+        (name) => vars.get(name) ?? 0,
+      ),
+    seeds,
   };
 }

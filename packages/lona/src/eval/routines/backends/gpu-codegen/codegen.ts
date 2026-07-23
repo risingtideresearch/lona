@@ -9,130 +9,18 @@
  * Uses f32 — results have reduced precision vs CPU f64 evaluators.
  */
 import type { VarName } from "../../../../core/tree";
-import {
-  type CompiledTape,
-  OP_LIT,
-  OP_VAR,
-  OP_SQRT,
-  OP_CBRT,
-  OP_COS,
-  OP_ACOS,
-  OP_ASIN,
-  OP_TAN,
-  OP_ATAN,
-  OP_LOG,
-  OP_EXP,
-  OP_ABS,
-  OP_NEG,
-  OP_SIN,
-  OP_SIGN,
-  OP_NOT,
-  OP_TANH,
-  OP_LOG1P,
-  OP_DEBUG,
-  OP_ADD,
-  OP_SUB,
-  OP_MUL,
-  OP_DIV,
-  OP_MOD,
-  OP_ATAN2,
-  OP_MIN,
-  OP_MAX,
-  OP_COMPARE,
-  OP_AND,
-  OP_OR,
-  OP_ASSERT_ZERO,
-  OP_ASSERT_NONZERO,
-} from "../../../tape";
+import { type CompiledTape, OP_ADD, OP_LIT, OP_VAR } from "../../../tape";
 import { requireGpuDevice, readGpuBuffer } from "../gpu-util";
+import {
+  binaryTapeOpWgsl,
+  formatWgslF32,
+  unaryTapeOpWgsl,
+  wgslValueRef,
+} from "./emit-tape-wgsl";
 
 const WORKGROUP_SIZE = 256;
 /** Conservative enough to keep Tint/Dawn away from monolithic shader stalls. */
 const DEFAULT_MAX_CHUNK_NODES = 4_000;
-
-function varRef(i: number): string {
-  return `_${i}`;
-}
-
-function unaryWgsl(op: number, operand: string): string | null {
-  switch (op) {
-    case OP_SQRT:
-      return `sqrt(${operand})`;
-    case OP_CBRT:
-      return `sign(${operand}) * pow(abs(${operand}), 0.33333333)`;
-    case OP_COS:
-      return `cos(${operand})`;
-    case OP_ACOS:
-      return `acos(${operand})`;
-    case OP_ASIN:
-      return `asin(${operand})`;
-    case OP_TAN:
-      return `tan(${operand})`;
-    case OP_ATAN:
-      return `atan(${operand})`;
-    case OP_LOG:
-      return `log(${operand})`;
-    case OP_EXP:
-      return `exp(${operand})`;
-    case OP_ABS:
-      return `abs(${operand})`;
-    case OP_NEG:
-      return `(-${operand})`;
-    case OP_SIN:
-      return `sin(${operand})`;
-    case OP_SIGN:
-      return `sign(${operand})`;
-    case OP_NOT:
-      return `select(0.0, 1.0, ${operand} == 0.0)`;
-    case OP_TANH:
-      return `tanh(${operand})`;
-    case OP_LOG1P:
-      return `log(1.0 + ${operand})`;
-    case OP_DEBUG:
-    case OP_ASSERT_ZERO:
-    case OP_ASSERT_NONZERO:
-      return operand;
-  }
-  return null;
-}
-
-function binaryWgsl(op: number, left: string, right: string): string | null {
-  switch (op) {
-    case OP_ADD:
-      return `(${left} + ${right})`;
-    case OP_SUB:
-      return `(${left} - ${right})`;
-    case OP_MUL:
-      return `(${left} * ${right})`;
-    case OP_DIV:
-      return `select(1e38, ${left} / ${right}, ${right} != 0.0)`;
-    case OP_MOD:
-      return `(${left} % ${right})`;
-    case OP_ATAN2:
-      return `atan2(${left}, ${right})`;
-    case OP_MIN:
-      return `min(${left}, ${right})`;
-    case OP_MAX:
-      return `max(${left}, ${right})`;
-    case OP_COMPARE:
-      return `sign(${left} - ${right})`;
-    case OP_AND:
-      return `select(${right}, ${left}, ${left} == 0.0)`;
-    case OP_OR:
-      return `select(${left}, ${right}, ${left} == 0.0)`;
-  }
-  return null;
-}
-
-function formatF32(v: number): string {
-  if (!Number.isFinite(v)) {
-    if (v === Infinity) return "1e38";
-    if (v === -Infinity) return "-1e38";
-    return "0.0";
-  }
-  const s = v.toString();
-  return s.includes(".") || s.includes("e") || s.includes("E") ? s : `${s}.0`;
-}
 
 interface ChunkPlan {
   start: number;
@@ -194,7 +82,7 @@ function generateChunkShader(
   }
 
   const ref = (node: number): string => {
-    if (node >= chunk.start && node < chunk.end) return varRef(node);
+    if (node >= chunk.start && node < chunk.end) return wgslValueRef(node);
     const slot = escapeSlot[node]!;
     if (slot < 0) {
       throw new Error(
@@ -210,27 +98,30 @@ function generateChunkShader(
     const a = tape.argA[i]!;
     const b = tape.argB[i]!;
     let expression: string | null;
-    if (op === OP_LIT) expression = formatF32(tape.literals[a]!);
-    else if (op === OP_VAR)
+    if (op === OP_LIT) expression = formatWgslF32(tape.literals[a]!);
+    else if (op === OP_VAR) {
       expression = `varData[tid * params.numVars + ${a}u]`;
-    else expression = unaryWgsl(op, ref(a)) ?? binaryWgsl(op, ref(a), ref(b));
+    } else {
+      expression =
+        unaryTapeOpWgsl(op, ref(a)) ?? binaryTapeOpWgsl(op, ref(a), ref(b));
+    }
 
     if (expression === null) {
       throw new Error(
         `GPU codegen does not support tape opcode ${op} at node ${i}`,
       );
     }
-    lines.push(`  let ${varRef(i)} = ${expression};`);
+    lines.push(`  let ${wgslValueRef(i)} = ${expression};`);
 
     const slot = escapeSlot[i]!;
     if (slot >= 0) {
       lines.push(
-        `  scratch[${slot}u * params.numPoints + tid] = ${varRef(i)};`,
+        `  scratch[${slot}u * params.numPoints + tid] = ${wgslValueRef(i)};`,
       );
     }
     for (const rootPosition of rootsAtNode.get(i) ?? []) {
       lines.push(
-        `  output[tid * ${tape.rootIndices.length}u + ${rootPosition}u] = ${varRef(i)};`,
+        `  output[tid * ${tape.rootIndices.length}u + ${rootPosition}u] = ${wgslValueRef(i)};`,
       );
     }
   }
@@ -238,6 +129,7 @@ function generateChunkShader(
   return `struct Params {
   numPoints: u32,
   numVars: u32,
+  numInputPoints: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -256,6 +148,17 @@ ${lines.join("\n")}
 
 export interface GpuCodegenEval {
   evalBatch(varData: Float32Array, numPoints: number): Promise<Float32Array>;
+  /** @internal Encode directly into caller-owned device storage without readback. */
+  encodeBatchToBuffer(
+    encoder: GPUCommandEncoder,
+    varData: Float32Array,
+    numPoints: number,
+    output: {
+      readonly buffer: GPUBuffer;
+      readonly offset: number;
+      readonly byteLength: number;
+    },
+  ): number;
   /** Total synchronous shader-module and pipeline creation time (ms). */
   shaderCompileMs: number;
   readonly varSlots: VarName[];
@@ -376,6 +279,71 @@ function createGpuCodegenEval(
     });
   }
 
+  function encodeBatchToBuffer(
+    encoder: GPUCommandEncoder,
+    varData: Float32Array,
+    numPoints: number,
+    output: {
+      readonly buffer: GPUBuffer;
+      readonly offset: number;
+      readonly byteLength: number;
+    },
+  ): number {
+    if (!Number.isInteger(numPoints) || numPoints <= 0) {
+      throw new Error(`Invalid GPU codegen batch size: ${numPoints}`);
+    }
+    if (varData.length !== numPoints * numVars) {
+      throw new Error(
+        `GPU codegen expected ${numPoints * numVars} input values, got ${varData.length}`,
+      );
+    }
+    const requiredBytes = numPoints * numRoots * 4;
+    if (output.byteLength < requiredBytes) {
+      throw new Error(
+        `GPU codegen output has ${output.byteLength} bytes; expected ${requiredBytes}`,
+      );
+    }
+    ensureBatchBuffers(numPoints);
+    device.queue.writeBuffer(
+      paramsBuf!,
+      0,
+      new Uint32Array([numPoints, numVars, 0, 0]),
+    );
+    if (varData.byteLength > 0) {
+      device.queue.writeBuffer(
+        varDataBuf!,
+        0,
+        varData.buffer as ArrayBuffer,
+        varData.byteOffset,
+        varData.byteLength,
+      );
+    }
+    const externalBindGroup = device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: paramsBuf! } },
+        { binding: 1, resource: { buffer: varDataBuf! } },
+        { binding: 2, resource: { buffer: scratchBuf! } },
+        {
+          binding: 3,
+          resource: {
+            buffer: output.buffer,
+            offset: output.offset,
+            size: requiredBytes,
+          },
+        },
+      ],
+    });
+    const pass = encoder.beginComputePass();
+    pass.setBindGroup(0, externalBindGroup);
+    for (const pipeline of pipelines) {
+      pass.setPipeline(pipeline);
+      pass.dispatchWorkgroups(Math.ceil(numPoints / WORKGROUP_SIZE));
+    }
+    pass.end();
+    return pipelines.length;
+  }
+
   async function evalBatch(
     varData: Float32Array,
     numPoints: number,
@@ -459,6 +427,7 @@ function createGpuCodegenEval(
 
   return {
     evalBatch,
+    encodeBatchToBuffer,
     shaderCompileMs,
     varSlots: tape.varSlots,
     numRoots,

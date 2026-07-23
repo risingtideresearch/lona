@@ -431,7 +431,7 @@ const GRAD_LOCALS: GradLocals = {
   P_LIT: 5,
   P_VARS: 6,
   P_NUMDIFF: 9,
-  P_DIFFMASK: 10,
+  P_SEEDS: 10,
   L_BASE: GRAD_NUM_PARAMS + 4,
   L_ABASE: GRAD_NUM_PARAMS + 5,
   L_BBASE: GRAD_NUM_PARAMS + 6,
@@ -825,66 +825,73 @@ export type WasmForwardAutodiffFn = (
   vars: Map<VarName, number>,
 ) => GradientResult;
 
-export function compileWasmForwardAutodiff(
+export type WasmSeededJvpFn = (
+  values: Float64Array,
+  seeds: Float64Array,
+) => { vals: number[]; tangents: number[][] };
+
+/** Compile a direct arbitrary-seed, multi-root JVP in the WASM interpreter. */
+export function compileWasmSeededJvp(
   tape: CompiledTape,
-  diffVars: VarName[],
-): WasmForwardAutodiffFn {
+  numDirections: number,
+): WasmSeededJvpFn {
+  if (!Number.isInteger(numDirections) || numDirections < 0) {
+    throw new Error(
+      `seeded JVP direction count must be a non-negative integer, got ${numDirections}`,
+    );
+  }
   ensureEvalGrad();
 
   const N = tape.opcodes.length;
   const L = tape.literals.length;
   const V = tape.varSlots.length;
-  const numDiff = diffVars.length;
-  const stride = 1 + numDiff;
-
-  // diffMask[varSlot] = index into diffVars, or -1
-  const diffMask = new Int32Array(V).fill(-1);
-  for (let d = 0; d < numDiff; d++) {
-    for (let s = 0; s < tape.numVars; s++) {
-      if (tape.varSlots[s] === diffVars[d]) {
-        diffMask[s] = d;
-        break;
-      }
-    }
-  }
-
+  const stride = 1 + numDirections;
   const opcodesSize = align4(N);
   const argSize = N * 4;
-  const diffMaskSize = V * 4;
+  const seedsSize = V * numDirections * 8;
   const fixedSize =
-    align8(opcodesSize + argSize * 2) + L * 8 + V * 8 + align4(diffMaskSize);
-  const valuesSize = N * stride * 8;
-  const totalSize = align8(fixedSize) + valuesSize;
+    align8(opcodesSize + argSize * 2) + L * 8 + V * 8 + seedsSize;
+  const totalSize = align8(fixedSize) + N * stride * 8;
 
   ensureMemory(totalSize);
   const base = memoryOffset;
   memoryOffset += totalSize;
-
   const opcodesOff = base;
   const argAOff = opcodesOff + opcodesSize;
   const argBOff = argAOff + argSize;
   const literalsOff = align8(argBOff + argSize);
   const varsOff = literalsOff + L * 8;
-  const diffMaskOff = varsOff + V * 8;
-  const valuesOff = align8(diffMaskOff + diffMaskSize);
+  const seedsOff = varsOff + V * 8;
+  const valuesOff = align8(seedsOff + seedsSize);
 
   const buf = sharedMemory!.buffer;
   new Uint8Array(buf, opcodesOff, N).set(tape.opcodes);
   new Int32Array(buf, argAOff, N).set(tape.argA);
   new Int32Array(buf, argBOff, N).set(tape.argB);
   new Float64Array(buf, literalsOff, L).set(tape.literals);
-  new Int32Array(buf, diffMaskOff, V).set(diffMask);
 
-  const fn = wasmEvalGrad!;
-  const { varSlots, numVars: tapeNumVars } = tape;
-  const rootIndex = tape.rootIndices[0];
+  return (values, seeds) => {
+    if (values.length !== tape.numVars) {
+      throw new Error(
+        `seeded JVP expected ${tape.numVars} values, got ${values.length}`,
+      );
+    }
+    if (seeds.length !== tape.numVars * numDirections) {
+      throw new Error(
+        `seeded JVP expected ${tape.numVars * numDirections} seeds, got ${seeds.length}`,
+      );
+    }
+    const current = sharedMemory!.buffer;
+    const varsView = new Float64Array(current, varsOff, V);
+    varsView.fill(0);
+    varsView.set(values);
+    const seedsView = new Float64Array(current, seedsOff, V * numDirections);
+    seedsView.fill(0);
+    seedsView.set(seeds);
 
-  return (vars: Map<VarName, number>): GradientResult => {
-    writeVarsToMemory(varsOff, varSlots, tapeNumVars, vars);
-
-    fn(
+    wasmEvalGrad!(
       N,
-      rootIndex,
+      tape.rootIndices[0],
       opcodesOff,
       argAOff,
       argBOff,
@@ -892,17 +899,34 @@ export function compileWasmForwardAutodiff(
       varsOff,
       valuesOff,
       stride,
-      numDiff,
-      diffMaskOff,
+      numDirections,
+      seedsOff,
     );
 
-    const rBase = valuesOff + rootIndex * stride * 8;
-    const resultView = new Float64Array(sharedMemory!.buffer, rBase, stride);
-    const gradient = new Array<number>(numDiff);
-    for (let d = 0; d < numDiff; d++) {
-      gradient[d] = resultView[1 + d]!;
+    const vals = new Array<number>(tape.rootIndices.length);
+    const tangents: number[][] = [];
+    for (let root = 0; root < tape.rootIndices.length; root++) {
+      const result = new Float64Array(
+        current,
+        valuesOff + tape.rootIndices[root]! * stride * 8,
+        stride,
+      );
+      vals[root] = result[0]!;
+      tangents.push(Array.from(result.subarray(1)));
     }
-    return { val: resultView[0]!, gradient };
+    return { vals, tangents };
+  };
+}
+
+export function compileWasmForwardAutodiff(
+  tape: CompiledTape,
+  diffVars: VarName[],
+): WasmForwardAutodiffFn {
+  const jvp = compileWasmSeededJvp(tape, diffVars.length);
+  const inputs = compileIdentityInputs(tape, diffVars);
+  return (vars) => {
+    const result = jvp(inputs.values(vars), inputs.seeds);
+    return { val: result.vals[0]!, gradient: result.tangents[0]! };
   };
 }
 
@@ -914,87 +938,35 @@ export function compileWasmForwardAutodiffMulti(
   tape: CompiledTape,
   diffVars: VarName[],
 ): WasmForwardAutodiffMultiFn {
-  // Reuse the same WASM module — it computes duals for every node.
-  // We just read multiple root indices at the end.
-  ensureEvalGrad();
+  const jvp = compileWasmSeededJvp(tape, diffVars.length);
+  const inputs = compileIdentityInputs(tape, diffVars);
+  return (vars) => {
+    const result = jvp(inputs.values(vars), inputs.seeds);
+    return { vals: result.vals, jacobian: result.tangents };
+  };
+}
 
-  const N = tape.opcodes.length;
-  const L = tape.literals.length;
-  const V = tape.varSlots.length;
-  const numDiff = diffVars.length;
-  const stride = 1 + numDiff;
-
-  const diffMask = new Int32Array(V).fill(-1);
-  for (let d = 0; d < numDiff; d++) {
-    for (let s = 0; s < tape.numVars; s++) {
-      if (tape.varSlots[s] === diffVars[d]) {
-        diffMask[s] = d;
-        break;
+function compileIdentityInputs(
+  tape: CompiledTape,
+  diffVars: readonly VarName[],
+): {
+  values(vars: ReadonlyMap<VarName, number>): Float64Array;
+  seeds: Float64Array;
+} {
+  const seeds = new Float64Array(tape.numVars * diffVars.length);
+  for (let input = 0; input < tape.numVars; input++) {
+    for (let direction = 0; direction < diffVars.length; direction++) {
+      if (tape.varSlots[input] === diffVars[direction]) {
+        seeds[input * diffVars.length + direction] = 1;
       }
     }
   }
-
-  const opcodesSize = align4(N);
-  const argSize = N * 4;
-  const diffMaskSize = V * 4;
-  const fixedSize =
-    align8(opcodesSize + argSize * 2) + L * 8 + V * 8 + align4(diffMaskSize);
-  const valuesSize = N * stride * 8;
-  const totalSize = align8(fixedSize) + valuesSize;
-
-  ensureMemory(totalSize);
-  const base = memoryOffset;
-  memoryOffset += totalSize;
-
-  const opcodesOff = base;
-  const argAOff = opcodesOff + opcodesSize;
-  const argBOff = argAOff + argSize;
-  const literalsOff = align8(argBOff + argSize);
-  const varsOff = literalsOff + L * 8;
-  const diffMaskOff = varsOff + V * 8;
-  const valuesOff = align8(diffMaskOff + diffMaskSize);
-
-  const buf = sharedMemory!.buffer;
-  new Uint8Array(buf, opcodesOff, N).set(tape.opcodes);
-  new Int32Array(buf, argAOff, N).set(tape.argA);
-  new Int32Array(buf, argBOff, N).set(tape.argB);
-  new Float64Array(buf, literalsOff, L).set(tape.literals);
-  new Int32Array(buf, diffMaskOff, V).set(diffMask);
-
-  const fn = wasmEvalGrad!;
-  const { varSlots, numVars: tapeNumVars, rootIndices } = tape;
-  const rootIndex = rootIndices[0];
-  const numRoots = rootIndices.length;
-
-  return (vars: Map<VarName, number>): JacobianResult => {
-    writeVarsToMemory(varsOff, varSlots, tapeNumVars, vars);
-
-    fn(
-      N,
-      rootIndex,
-      opcodesOff,
-      argAOff,
-      argBOff,
-      literalsOff,
-      varsOff,
-      valuesOff,
-      stride,
-      numDiff,
-      diffMaskOff,
-    );
-
-    const vals = new Array<number>(numRoots);
-    const jacobian: number[][] = [];
-    for (let r = 0; r < numRoots; r++) {
-      const rBase = valuesOff + rootIndices[r]! * stride * 8;
-      const view = new Float64Array(sharedMemory!.buffer, rBase, stride);
-      vals[r] = view[0]!;
-      const row = new Array<number>(numDiff);
-      for (let d = 0; d < numDiff; d++) {
-        row[d] = view[1 + d]!;
-      }
-      jacobian.push(row);
-    }
-    return { vals, jacobian };
+  return {
+    values: (vars) =>
+      Float64Array.from(
+        tape.varSlots.slice(0, tape.numVars),
+        (name) => vars.get(name) ?? 0,
+      ),
+    seeds,
   };
 }

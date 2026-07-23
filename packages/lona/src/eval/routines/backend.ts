@@ -54,6 +54,24 @@ export interface SyncJacobianKernel {
   eval(vars: VarMap): JacobianResult;
 }
 
+/** Result of applying arbitrary tangent seeds to a multi-root tape. */
+export interface JvpResult {
+  readonly vals: number[];
+  /** One row per root and one column per tangent direction. */
+  readonly tangents: number[][];
+}
+
+/**
+ * A synchronous, packed multi-root JVP kernel. Values follow the tape's
+ * ordinary variable-slot order; seeds use input-major, direction-minor order.
+ */
+export interface SyncJvpKernel {
+  readonly kind: "sync-jvp";
+  readonly numRoots: number;
+  readonly numDirections: number;
+  evalPacked(values: Float64Array, seeds: Float64Array): JvpResult;
+}
+
 /**
  * An async-batch kernel implements `evalBatchPacked` natively (GPU). The
  * routine wrapper synthesizes `evalBatch` via `packVarBatch`, synthesizes
@@ -91,8 +109,9 @@ export interface AsyncBatchGradKernel {
 export type ValueKernel = SyncValueKernel | AsyncBatchValueKernel;
 export type GradKernel = SyncGradKernel | AsyncBatchGradKernel;
 export type JacobianKernel = SyncJacobianKernel;
+export type JvpKernel = SyncJvpKernel;
 
-export type AnyKernel = ValueKernel | GradKernel | JacobianKernel;
+export type AnyKernel = ValueKernel | GradKernel | JacobianKernel | JvpKernel;
 
 // ---------------------------------------------------------------------------
 // Kernel envelope — adds the tape metadata the routine wrapper needs
@@ -123,6 +142,10 @@ export interface Backend {
     tape: CompiledTape,
     diffVars: VarName[],
   ): KernelEnvelope<JacobianKernel> | null;
+  compileJvp?(
+    tape: CompiledTape,
+    numDirections: number,
+  ): KernelEnvelope<JvpKernel> | null;
 
   /** Compile a grad routine from original DAG roots (symbolic differentiation). */
   compileGradFromRoots?(

@@ -163,6 +163,7 @@ test("sigmoid", () => {
 });
 
 test("buildRoutine builds symbolic value and grad routines", () => {
+  const checkpoints: string[] = [];
   const valueRoutine = buildRoutine(
     ({ variable, asNum, when }) => {
       const x = variable("x");
@@ -175,9 +176,13 @@ test("buildRoutine builds symbolic value and grad routines", () => {
             .else(() => y.neg()),
         );
     },
-    { backend: "js-interp" },
+    {
+      backend: "js-interp",
+      diagnosticCheckpoint: (phase) => checkpoints.push(phase),
+    },
   );
 
+  expect(checkpoints).toContain("lona:tape:start");
   expect(valueRoutine.shape).toBe("value");
   expect(
     valueRoutine.eval(

@@ -15,7 +15,15 @@
  */
 import type { CompiledTape } from "../../../tape";
 import type { VarName } from "../../../../core/tree";
-import { requireGpuDevice, readGpuBuffer } from "../gpu-util";
+import {
+  mapGpuReadbackBuffer,
+  requireGpuDevice,
+  readGpuBuffer,
+} from "../gpu-util";
+import {
+  compileGpuInterpJvpDeviceKernel,
+  type GpuInterpJvpDeviceKernel,
+} from "./jvp-device";
 export { destroyGpu } from "../gpu-util";
 
 // ---------------------------------------------------------------------------
@@ -117,9 +125,6 @@ const WORKGROUP_SIZE = 256;
 let evalPipeline: GPUComputePipeline | null = null;
 let evalBindGroupLayout: GPUBindGroupLayout | null = null;
 
-let gradPipeline: GPUComputePipeline | null = null;
-let gradBindGroupLayout: GPUBindGroupLayout | null = null;
-
 function ensureEvalPipeline(device: GPUDevice) {
   if (evalPipeline) return;
   const shaderModule = device.createShaderModule({ code: SHADER_SOURCE });
@@ -180,77 +185,15 @@ function ensureEvalPipeline(device: GPUDevice) {
   });
 }
 
-function ensureGradPipeline(device: GPUDevice) {
-  if (gradPipeline) return;
-  const shaderModule = device.createShaderModule({ code: GRAD_SHADER_SOURCE });
-  gradBindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 4,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 5,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-      {
-        binding: 6,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" },
-      },
-      {
-        binding: 7,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" },
-      },
-      {
-        binding: 8,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
-      },
-    ],
-  });
-  gradPipeline = device.createComputePipeline({
-    layout: device.createPipelineLayout({
-      bindGroupLayouts: [gradBindGroupLayout],
-    }),
-    compute: { module: shaderModule, entryPoint: "main" },
-  });
-}
-
 /**
- * Eagerly initialize the GPU device, compile the value-only and grad
- * shaders, and build their pipelines. Subsequent calls to
- * compileGpuTapeFromSerialized / compileGpuTapeGrad skip these costs.
+ * Eagerly initialize the GPU device and compile the shared value pipeline.
+ * Device JVP pipelines are initialized lazily by their lower-level compiler.
  * Returns false if the GPU is unavailable.
  */
 export function initGpuTapeEval(): boolean {
   try {
     const device = requireGpuDevice();
     ensureEvalPipeline(device);
-    ensureGradPipeline(device);
     return true;
   } catch {
     return false;
@@ -510,327 +453,226 @@ export function compileGpuTapeFromTape(tape: CompiledTape): GpuTapeEval {
 }
 
 // ---------------------------------------------------------------------------
-// GPU forward-mode autodiff tape evaluator — all-partials-per-thread
-// ---------------------------------------------------------------------------
-//
-// Each GPU thread computes value + ALL D partial derivatives in one pass.
-// The shader propagates [value, ∂/∂v₀, ∂/∂v₁, …, ∂/∂vD-1] per node per
-// thread (stride = 1 + D). Only N threads are needed (one per point),
-// not N×D. The derivative factors (fa, fb) are computed once per node and
-// applied to all D derivative slots in a loop.
-
-const GRAD_SHADER_SOURCE = /* wgsl */ `
-struct Params {
-  numNodes: u32,
-  rootIndex: u32,
-  numPoints: u32,
-  numVars: u32,
-  numDiffVars: u32,
-}
-
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> opcodes: array<u32>;
-@group(0) @binding(2) var<storage, read> argA: array<u32>;
-@group(0) @binding(3) var<storage, read> argB: array<u32>;
-@group(0) @binding(4) var<storage, read> literals: array<f32>;
-@group(0) @binding(5) var<storage, read> varData: array<f32>;
-@group(0) @binding(6) var<storage, read_write> vals: array<f32>;
-@group(0) @binding(7) var<storage, read_write> output: array<f32>;
-@group(0) @binding(8) var<storage, read> diffVarSlots: array<u32>;
-
-const DIV_ZERO: f32 = 1e38;
-
-fn cbrt_f32(x: f32) -> f32 {
-  return sign(x) * pow(abs(x), 1.0 / 3.0);
-}
-
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let tid = gid.x;
-  if (tid >= params.numPoints) { return; }
-
-  let np = params.numPoints;
-  let nv = params.numVars;
-  let nd = params.numDiffVars;
-  let stride = 1u + nd;
-
-  for (var i = 0u; i < params.numNodes; i = i + 1u) {
-    let op = opcodes[i];
-    let a  = argA[i];
-    let b  = argB[i];
-    let base  = (i * np + tid) * stride;
-    let aBase = (a * np + tid) * stride;
-    let bBase = (b * np + tid) * stride;
-
-    let va = vals[aBase];
-    let vb = vals[bBase];
-
-    var r: f32 = 0.0;
-    var fa: f32 = 0.0;
-    var fb: f32 = 0.0;
-
-    switch op {
-      case  0u { r = literals[a]; }
-      case  1u { r = varData[tid * nv + a]; }
-      case 10u { r = sqrt(va); fa = select(0.5 / r, 0.0, r == 0.0); }
-      case 11u { r = cbrt_f32(va); fa = select(1.0 / (3.0 * r * r), 0.0, r == 0.0); }
-      case 12u { r = cos(va); fa = -sin(va); }
-      case 13u { r = acos(va); fa = -1.0 / sqrt(1.0 - va * va); }
-      case 14u { r = asin(va); fa = 1.0 / sqrt(1.0 - va * va); }
-      case 15u { r = tan(va); let c = cos(va); fa = 1.0 / (c * c); }
-      case 16u { r = atan(va); fa = 1.0 / (1.0 + va * va); }
-      case 17u { r = log(va); fa = 1.0 / va; }
-      case 18u { r = exp(va); fa = r; }
-      case 19u { r = abs(va); fa = select(select(-1.0, 0.0, va == 0.0), 1.0, va > 0.0); }
-      case 20u { r = -va; fa = -1.0; }
-      case 21u { r = sin(va); fa = cos(va); }
-      case 22u { r = sign(va); }
-      case 23u { r = select(0.0, 1.0, va == 0.0); }
-      case 24u { r = tanh(va); fa = 1.0 - r * r; }
-      case 25u { r = log(1.0 + va); fa = 1.0 / (1.0 + va); }
-      case 26u { r = va; fa = 1.0; }
-      case 40u { r = va + vb; fa = 1.0; fb = 1.0; }
-      case 41u { r = va - vb; fa = 1.0; fb = -1.0; }
-      case 42u { r = va * vb; fa = vb; fb = va; }
-      case 43u {
-        if (vb == 0.0) { r = DIV_ZERO; }
-        else { r = va / vb; fa = 1.0 / vb; fb = -va / (vb * vb); }
-      }
-      case 44u { r = va % vb; fa = 1.0; }
-      case 45u {
-        r = atan2(va, vb);
-        let denom = va * va + vb * vb;
-        if (denom != 0.0) { fa = vb / denom; fb = -va / denom; }
-      }
-      case 46u { let useA = va <= vb; r = select(vb, va, useA); fa = select(0.0, 1.0, useA); fb = select(1.0, 0.0, useA); }
-      case 47u { let useA = va >= vb; r = select(vb, va, useA); fa = select(0.0, 1.0, useA); fb = select(1.0, 0.0, useA); }
-      case 48u { r = sign(va - vb); }
-      case 49u { let z = va == 0.0; r = select(va, vb, z); fa = select(1.0, 0.0, z); fb = select(0.0, 1.0, z); }
-      case 50u { let nz = va != 0.0; r = select(va, vb, nz); fa = select(1.0, 0.0, nz); fb = select(0.0, 1.0, nz); }
-      case 51u { r = va; fa = 1.0; }
-      case 52u { r = va; fa = 1.0; }
-      default  { }
-    }
-
-    vals[base] = r;
-
-    if (op == 0u) {
-      // LIT: all derivatives are 0
-      for (var d = 0u; d < nd; d = d + 1u) {
-        vals[base + 1u + d] = 0.0;
-      }
-    } else if (op == 1u) {
-      // VAR: seed derivatives
-      for (var d = 0u; d < nd; d = d + 1u) {
-        vals[base + 1u + d] = select(0.0, 1.0, a == diffVarSlots[d]);
-      }
-    } else {
-      // All other ops: dr = fa * da + fb * db
-      for (var d = 0u; d < nd; d = d + 1u) {
-        vals[base + 1u + d] = fa * vals[aBase + 1u + d] + fb * vals[bBase + 1u + d];
-      }
-    }
-  }
-
-  // Output: [val, dv0, dv1, ...] per point
-  let rootBase = (params.rootIndex * np + tid) * stride;
-  for (var k = 0u; k < stride; k = k + 1u) {
-    output[tid * stride + k] = vals[rootBase + k];
-  }
-}
-`;
-
-// ---------------------------------------------------------------------------
-// GpuTapeGradEval — all-partials-per-thread
+// GPU forward-mode autodiff — host adapter over the device JVP interpreter
 // ---------------------------------------------------------------------------
 
 export interface GpuTapeGradEval {
-  /**
-   * Evaluate value + all partial derivatives for a batch of points.
-   * @param varData  Flat f32: numPoints × numVars entries in varSlots order
-   * @param numPoints  Number of points in the batch
-   * @returns Float32Array of numPoints × (1 + numDiffVars):
-   *   [val₀, ∂v₀₀, ∂v₀₁, …, val₁, ∂v₁₀, …]
-   */
+  /** Output is [value, derivative0, ...] for each point. */
   evalBatch(varData: Float32Array, numPoints: number): Promise<Float32Array>;
-
   readonly varSlots: VarName[];
   readonly numDiffVars: number;
   destroy(): void;
 }
 
-function createGpuTapeGradEval(
-  device: GPUDevice,
-  tapeBuffers: TapeGpuBuffers,
-  diffVarSlotIndices: number[],
-): GpuTapeGradEval {
-  const { numNodes, rootIndex, varSlots } = tapeBuffers;
-  const numVars = varSlots.length;
-  const numDiffVars = diffVarSlotIndices.length;
-  const stride = 1 + numDiffVars;
-
-  ensureGradPipeline(device);
-  const pipeline = gradPipeline!;
-  const bindGroupLayout = gradBindGroupLayout!;
-
-  // Upload diffVarSlots once (small buffer, immutable)
-  const diffVarSlotsU32 = new Uint32Array(diffVarSlotIndices);
-  const diffVarSlotsBuf = createStorageBuffer(
-    device,
-    diffVarSlotsU32.buffer as ArrayBuffer,
-  );
-
-  const maxStorageBuf = device.limits.maxStorageBufferBindingSize;
-  const valsPerPoint = numNodes * stride * 4;
-  const maxByBuffer = Math.floor(maxStorageBuf / valsPerPoint);
-  const maxByDispatch =
-    device.limits.maxComputeWorkgroupsPerDimension * WORKGROUP_SIZE;
-  const maxBatch = Math.min(maxByBuffer, maxByDispatch);
-
-  let allocatedBatch = 0;
-  let paramsBuf: GPUBuffer | null = null;
-  let varDataBuf: GPUBuffer | null = null;
-  let valuesBuf: GPUBuffer | null = null;
-  let outputBuf: GPUBuffer | null = null;
-  let stagingBuf: GPUBuffer | null = null;
-  let bindGroup: GPUBindGroup | null = null;
-
-  function ensureBatchBuffers(batchSize: number) {
-    if (batchSize === allocatedBatch) return;
-    paramsBuf?.destroy();
-    varDataBuf?.destroy();
-    valuesBuf?.destroy();
-    outputBuf?.destroy();
-    stagingBuf?.destroy();
-
-    allocatedBatch = batchSize;
-
-    paramsBuf = device.createBuffer({
-      size: 20,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    varDataBuf = device.createBuffer({
-      size: Math.max(batchSize * numVars * 4, 4),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-
-    valuesBuf = device.createBuffer({
-      size: numNodes * batchSize * stride * 4,
-      usage: GPUBufferUsage.STORAGE,
-    });
-
-    const outputSize = batchSize * stride * 4;
-    outputBuf = device.createBuffer({
-      size: outputSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-
-    stagingBuf = device.createBuffer({
-      size: outputSize,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-
-    bindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: paramsBuf } },
-        { binding: 1, resource: { buffer: tapeBuffers.opcodes } },
-        { binding: 2, resource: { buffer: tapeBuffers.argA } },
-        { binding: 3, resource: { buffer: tapeBuffers.argB } },
-        { binding: 4, resource: { buffer: tapeBuffers.literals } },
-        { binding: 5, resource: { buffer: varDataBuf } },
-        { binding: 6, resource: { buffer: valuesBuf } },
-        { binding: 7, resource: { buffer: outputBuf } },
-        { binding: 8, resource: { buffer: diffVarSlotsBuf } },
-      ],
-    });
-  }
-
-  async function evalBatch(
-    varData: Float32Array,
-    numPoints: number,
-  ): Promise<Float32Array> {
-    if (numPoints === 0) return new Float32Array(0);
-    if (numPoints > maxBatch) {
-      const results = new Float32Array(numPoints * stride);
-      for (let offset = 0; offset < numPoints; offset += maxBatch) {
-        const end = Math.min(offset + maxBatch, numPoints);
-        const batchData = varData.subarray(offset * numVars, end * numVars);
-        const batchResults = await evalBatch(batchData, end - offset);
-        results.set(batchResults, offset * stride);
-      }
-      return results;
-    }
-
-    ensureBatchBuffers(numPoints);
-
-    const paramsData = new Uint32Array([
-      numNodes,
-      rootIndex,
-      numPoints,
-      numVars,
-      numDiffVars,
-    ]);
-    device.queue.writeBuffer(paramsBuf!, 0, paramsData);
-    device.queue.writeBuffer(
-      varDataBuf!,
-      0,
-      varData.buffer as ArrayBuffer,
-      varData.byteOffset,
-      varData.byteLength,
-    );
-
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup!);
-    pass.dispatchWorkgroups(Math.ceil(numPoints / WORKGROUP_SIZE));
-    pass.end();
-
-    device.queue.submit([encoder.finish()]);
-
-    return readGpuBuffer(
-      device,
-      outputBuf!,
-      stagingBuf!,
-      numPoints * stride * 4,
-    );
-  }
-
-  function destroy() {
-    paramsBuf?.destroy();
-    varDataBuf?.destroy();
-    valuesBuf?.destroy();
-    outputBuf?.destroy();
-    stagingBuf?.destroy();
-    diffVarSlotsBuf.destroy();
-    tapeBuffers.opcodes.destroy();
-    tapeBuffers.argA.destroy();
-    tapeBuffers.argB.destroy();
-    tapeBuffers.literals.destroy();
-    tapeBuffers.rootIndices.destroy();
-  }
-
-  return { evalBatch, varSlots, numDiffVars, destroy };
-}
-
-// ---------------------------------------------------------------------------
-// Public API — GPU forward-mode autodiff
-// ---------------------------------------------------------------------------
-
 /**
- * Compile a GPU tape grad evaluator. All D partial derivatives are
- * computed per thread — only N threads needed, no CPU-side expansion.
- * Output is N × (1 + D) f32s: [val, ∂v₀, ∂v₁, …] per point.
+ * Wrap the caller-owned-buffer JVP primitive for the ordinary batch-grad API.
+ * Identity seeds are packed on the host; primal and tangent outputs are copied
+ * in one submission and interleaved after readback.
  */
 export function compileGpuTapeGradFromTape(
   tape: CompiledTape,
   diffVarSlotIndices: number[],
 ): GpuTapeGradEval {
-  const device = requireGpuDevice();
-  const tapeBuffers = uploadTapeBuffers(device, tape);
-  return createGpuTapeGradEval(device, tapeBuffers, diffVarSlotIndices);
-}
+  if (tape.rootIndices.length !== 1) {
+    throw new Error("GPU interpreter gradient evaluation requires one root");
+  }
+  for (const slot of diffVarSlotIndices) {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= tape.numVars) {
+      throw new Error(`invalid GPU interpreter differentiation slot: ${slot}`);
+    }
+  }
 
-// destroyGpu re-exported from gpu-util.ts
+  const device = requireGpuDevice();
+  const numVars = tape.numVars;
+  const numDiffVars = diffVarSlotIndices.length;
+  const bindingLimit = device.limits.maxStorageBufferBindingSize;
+  const dispatchLimit =
+    device.limits.maxComputeWorkgroupsPerDimension * WORKGROUP_SIZE;
+  const maxPointsFor = (scalarsPerPoint: number): number =>
+    scalarsPerPoint === 0
+      ? dispatchLimit
+      : Math.floor(bindingLimit / (scalarsPerPoint * 4));
+  const maxBatch = Math.min(
+    dispatchLimit,
+    maxPointsFor(tape.opcodes.length),
+    maxPointsFor(tape.opcodes.length * numDiffVars),
+    maxPointsFor(numVars),
+    maxPointsFor(numVars * numDiffVars),
+    maxPointsFor(1 + numDiffVars),
+  );
+  if (maxBatch < 1) {
+    throw new Error("GPU interpreter gradient tape does not fit device limits");
+  }
+
+  let allocatedBatch = 0;
+  let jvp: GpuInterpJvpDeviceKernel | null = null;
+  let inputValues: GPUBuffer | null = null;
+  let inputTangents: GPUBuffer | null = null;
+  let outputValues: GPUBuffer | null = null;
+  let outputTangents: GPUBuffer | null = null;
+  let valueStaging: GPUBuffer | null = null;
+  let tangentStaging: GPUBuffer | null = null;
+  let identitySeeds: Float32Array | null = null;
+
+  const destroyBatch = (): void => {
+    jvp?.destroy();
+    inputValues?.destroy();
+    inputTangents?.destroy();
+    outputValues?.destroy();
+    outputTangents?.destroy();
+    valueStaging?.destroy();
+    tangentStaging?.destroy();
+    jvp = null;
+    inputValues = null;
+    inputTangents = null;
+    outputValues = null;
+    outputTangents = null;
+    valueStaging = null;
+    tangentStaging = null;
+    identitySeeds = null;
+    allocatedBatch = 0;
+  };
+
+  const ensureBatch = (numPoints: number): void => {
+    if (allocatedBatch === numPoints) return;
+    destroyBatch();
+    jvp = compileGpuInterpJvpDeviceKernel(tape, numDiffVars, numPoints);
+    const createStorage = (bytes: number, usage = GPUBufferUsage.STORAGE) =>
+      device.createBuffer({ size: Math.max(bytes, 4), usage });
+    try {
+      inputValues = createStorage(
+        numPoints * numVars * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      );
+      inputTangents = createStorage(
+        numPoints * numVars * numDiffVars * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      );
+      outputValues = createStorage(
+        numPoints * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      );
+      outputTangents = createStorage(
+        numPoints * numDiffVars * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      );
+      valueStaging = createStorage(
+        numPoints * 4,
+        GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      );
+      tangentStaging = createStorage(
+        numPoints * numDiffVars * 4,
+        GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      );
+      identitySeeds = new Float32Array(numPoints * numVars * numDiffVars);
+      for (let point = 0; point < numPoints; point++) {
+        for (let direction = 0; direction < numDiffVars; direction++) {
+          const slot = diffVarSlotIndices[direction]!;
+          identitySeeds[(point * numVars + slot) * numDiffVars + direction] = 1;
+        }
+      }
+      allocatedBatch = numPoints;
+    } catch (error) {
+      destroyBatch();
+      throw error;
+    }
+  };
+
+  const evalBatch = async (
+    varData: Float32Array,
+    numPoints: number,
+  ): Promise<Float32Array> => {
+    if (!Number.isInteger(numPoints) || numPoints < 0) {
+      throw new Error(
+        `invalid GPU interpreter gradient point count: ${numPoints}`,
+      );
+    }
+    if (varData.length < numPoints * numVars) {
+      throw new Error(
+        `GPU interpreter gradient received ${varData.length} values; expected ${numPoints * numVars}`,
+      );
+    }
+    if (numPoints === 0) return new Float32Array(0);
+    if (numPoints > maxBatch) {
+      const stride = 1 + numDiffVars;
+      const result = new Float32Array(numPoints * stride);
+      for (let offset = 0; offset < numPoints; offset += maxBatch) {
+        const end = Math.min(offset + maxBatch, numPoints);
+        const chunk = await evalBatch(
+          varData.subarray(offset * numVars, end * numVars),
+          end - offset,
+        );
+        result.set(chunk, offset * stride);
+      }
+      return result;
+    }
+
+    ensureBatch(numPoints);
+    device.queue.writeBuffer(
+      inputValues!,
+      0,
+      varData.buffer as ArrayBuffer,
+      varData.byteOffset,
+      numPoints * numVars * 4,
+    );
+    if (identitySeeds!.byteLength > 0)
+      device.queue.writeBuffer(inputTangents!, 0, identitySeeds!);
+
+    const encoder = device.createCommandEncoder();
+    jvp!.encode(
+      encoder,
+      { buffer: inputValues!, offset: 0, byteLength: numPoints * numVars * 4 },
+      {
+        buffer: inputTangents!,
+        offset: 0,
+        byteLength: identitySeeds!.byteLength,
+      },
+      { buffer: outputValues!, offset: 0, byteLength: numPoints * 4 },
+      {
+        buffer: outputTangents!,
+        offset: 0,
+        byteLength: numPoints * numDiffVars * 4,
+      },
+      numPoints,
+    );
+    encoder.copyBufferToBuffer(
+      outputValues!,
+      0,
+      valueStaging!,
+      0,
+      numPoints * 4,
+    );
+    if (numDiffVars > 0) {
+      encoder.copyBufferToBuffer(
+        outputTangents!,
+        0,
+        tangentStaging!,
+        0,
+        numPoints * numDiffVars * 4,
+      );
+    }
+    device.queue.submit([encoder.finish()]);
+
+    const [values, tangents] = await Promise.all([
+      mapGpuReadbackBuffer(valueStaging!, numPoints * 4),
+      mapGpuReadbackBuffer(tangentStaging!, numPoints * numDiffVars * 4),
+    ]);
+    const stride = 1 + numDiffVars;
+    const result = new Float32Array(numPoints * stride);
+    for (let point = 0; point < numPoints; point++) {
+      result[point * stride] = values[point]!;
+      result.set(
+        tangents.subarray(point * numDiffVars, (point + 1) * numDiffVars),
+        point * stride + 1,
+      );
+    }
+    return result;
+  };
+
+  return {
+    evalBatch,
+    varSlots: tape.varSlots,
+    numDiffVars,
+    destroy: destroyBatch,
+  };
+}

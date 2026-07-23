@@ -3,21 +3,41 @@
  * a shared WebAssembly module.
  */
 import type { VarName } from "../../../../core/tree";
+import { compileWasmTapeFromTape, compileWasmSeededJvp } from "./tape-eval";
 import {
-  compileWasmTapeFromTape,
-  compileWasmForwardAutodiff,
-  compileWasmForwardAutodiffMulti,
-} from "./tape-eval";
-import { registerBackend } from "../../backend";
+  registerBackend,
+  type JvpKernel,
+  type KernelEnvelope,
+} from "../../backend";
 import type { VarMap } from "../../types";
+import { adaptSyncJvpToGrad, adaptSyncJvpToJacobian } from "../_jvp-adapters";
 import {
   compileSyncSymbolicGrad,
   compileSyncSymbolicJacobian,
 } from "../_symbolic-helpers";
 
+function compileJvp(
+  tape: Parameters<typeof compileWasmSeededJvp>[0],
+  numDirections: number,
+): KernelEnvelope<JvpKernel> {
+  return {
+    varSlots: tape.varSlots,
+    numVars: tape.numVars,
+    backend: "wasm-interp",
+    kernel: {
+      kind: "sync-jvp",
+      numRoots: tape.rootIndices.length,
+      numDirections,
+      evalPacked: compileWasmSeededJvp(tape, numDirections),
+    },
+  };
+}
+
 registerBackend({
   name: "wasm-interp",
   supported: new Set(["value", "grad", "jacobian"]),
+
+  compileJvp,
 
   compileValue(tape) {
     const numRoots = tape.rootIndices.length;
@@ -39,32 +59,19 @@ registerBackend({
   },
 
   compileGrad(tape, diffVars) {
-    const fn = compileWasmForwardAutodiff(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "wasm-interp",
-      kernel: {
-        kind: "sync-grad",
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToGrad(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 
   compileJacobian(tape, diffVars) {
-    const fn = compileWasmForwardAutodiffMulti(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "wasm-interp",
-      kernel: {
-        kind: "sync-jacobian",
-        numRoots: tape.rootIndices.length,
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToJacobian(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 });
 

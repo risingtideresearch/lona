@@ -28,6 +28,8 @@ import type {
   BackendName,
   GradKernel,
   JacobianKernel,
+  JvpKernel,
+  JvpResult,
   KernelEnvelope,
   ValueKernel,
 } from "./backend";
@@ -98,13 +100,18 @@ function rejectUnsupportedSelectSpecialization(
   ]);
   const supportedGrad = new Set<BackendName>([
     "js-interp",
+    "js-codegen",
     "wasm-interp",
     "wasm-codegen",
   ]);
-  // Only the interpreting backends expose a `compileJacobian` (sync-jacobian)
-  // path that consumes a specialized tape; the codegen backends differentiate
-  // symbolically from roots and can't be fed a trace-specialized tape.
-  const supportedJacobian = new Set<BackendName>(["js-interp", "wasm-interp"]);
+  // These backends expose a native `compileJacobian` path that consumes the
+  // specialized tape. Symbolic backends still require the original roots.
+  const supportedJacobian = new Set<BackendName>([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ]);
   const supported =
     shape === "value"
       ? supportedValue
@@ -470,6 +477,44 @@ export function compileValueRoutineFromTape(
     throw new Error(`Backend '${name}' failed to compile value routine`);
   opts?.diagnosticCheckpoint?.(`lona:backend:${name}:done`);
   return wrapValue(env as KernelEnvelope<ValueKernel>);
+}
+
+export interface SeededJvpRoutine {
+  readonly varSlots: readonly VarName[];
+  readonly numVars: number;
+  readonly numRoots: number;
+  readonly numDirections: number;
+  evalPacked(values: Float64Array, seeds: Float64Array): JvpResult;
+  dispose?(): void;
+}
+
+/** Compile an immutable tape for arbitrary-seed, multi-root forward JVP. */
+export function compileJvpRoutineFromTape(
+  tape: CompiledTape,
+  numDirections: number,
+  opts?: CompileValueTapeOpts,
+): SeededJvpRoutine {
+  const name = opts?.backend ?? "js-interp";
+  const backend = requireBackend(name);
+  opts?.diagnosticCheckpoint?.(`lona:backend:${name}:jvp:start`);
+  const env = backend.compileJvp?.(tape, numDirections);
+  if (!env) {
+    throw new Error(`Backend '${name}' failed to compile seeded JVP routine`);
+  }
+  const typed = env as KernelEnvelope<JvpKernel>;
+  if (typed.kernel.kind !== "sync-jvp") {
+    typed.dispose?.();
+    throw new Error(`Backend '${name}' does not provide a synchronous JVP`);
+  }
+  opts?.diagnosticCheckpoint?.(`lona:backend:${name}:jvp:done`);
+  return {
+    varSlots: typed.varSlots,
+    numVars: typed.numVars,
+    numRoots: typed.kernel.numRoots,
+    numDirections: typed.kernel.numDirections,
+    evalPacked: typed.kernel.evalPacked.bind(typed.kernel),
+    dispose: typed.dispose,
+  };
 }
 
 export function compileValueRoutine(

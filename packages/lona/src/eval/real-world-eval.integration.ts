@@ -730,6 +730,26 @@ describe("gpu-interp multi-root value evaluation", () => {
     },
   );
 
+  gpuTest.each(["gpu-interp", "gpu-codegen"] as const)(
+    "backend=%s gradient batch uses a device JVP kernel",
+    async (backend) => {
+      const routine = compileGradRoutine([rootA.n], ["x", "y", "w"], {
+        backend,
+      }) as GradRoutine;
+      const results = await routine.evalBatch(pointsVarBatch(), points.length);
+      expect(results).toHaveLength(points.length);
+      for (let point = 0; point < points.length; point++) {
+        const input = points[point]!;
+        const result = results[point]!;
+        expect(result.val).toBeCloseTo(input.x + input.w * input.y, 4);
+        expect(result.gradient[0]).toBeCloseTo(1, 4);
+        expect(result.gradient[1]).toBeCloseTo(input.w, 4);
+        expect(result.gradient[2]).toBeCloseTo(input.y, 4);
+      }
+      routine.dispose?.();
+    },
+  );
+
   gpuTest(
     "single-root regression: evalBatch still returns numPoints f32s",
     async () => {

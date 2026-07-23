@@ -10,6 +10,9 @@ import dts from "vite-plugin-dts";
  *   name: string;
  *   external?: string[];
  *   alias?: import("vite").AliasOptions;
+ *   testAlias?: import("vite").AliasOptions;
+ *   entries?: Record<string, string>;
+ *   dtsBeforeWriteFile?: (filePath: string, content: string) => void | false | { filePath?: string; content?: string };
  * }} options
  */
 export function createLibraryConfig({
@@ -17,15 +20,26 @@ export function createLibraryConfig({
   name,
   external = [],
   alias,
+  testAlias,
+  entries,
+  dtsBeforeWriteFile,
 }) {
   return defineConfig(({ mode }) => ({
     resolve: { alias },
+    ...(testAlias ? { test: { alias: testAlias } } : {}),
     build: {
       minify: false,
       lib: {
-        entry: resolve(packageDir, "src/main.ts"),
+        entry: entries
+          ? Object.fromEntries(
+              Object.entries(entries).map(([entryName, path]) => [
+                entryName,
+                resolve(packageDir, path),
+              ]),
+            )
+          : resolve(packageDir, "src/main.ts"),
         name,
-        fileName: name,
+        fileName: entries ? (_format, entryName) => `${entryName}.js` : name,
         formats: ["es"],
       },
       rollupOptions: { external },
@@ -43,6 +57,7 @@ export function createLibraryConfig({
           declarationMap: mode === "debug",
           declaration: mode === "debug",
         },
+        beforeWriteFile: dtsBeforeWriteFile,
       }),
     ],
   }));

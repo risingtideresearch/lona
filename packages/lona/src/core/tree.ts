@@ -19,8 +19,8 @@ export type VarName = string | symbol;
 // `tree.test.ts`.
 //
 // `Derivative`, `ForeignFn`, and `SelectOp` have kinds ≥ 60 because they
-// never appear in the current linear compiled tape (all are rejected by
-// `compileTape`), so they're outside the opcode space.
+// never appear directly in the current linear compiled tape, so they're
+// outside the opcode space.
 
 export const KIND_LIT = 0;
 export const KIND_VAR = 1;

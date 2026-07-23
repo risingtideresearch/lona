@@ -11,8 +11,8 @@
   ],
   "scripts": {
     "clean": "npm run clean --workspaces --if-present",
-    "build": "npm run build -w packages/lona && npm run build -w packages/lona-geom && npm run build -w packages/lona-curves && npm run build -w demos/show-curves && npm run build -w demos/profile-surface-optimisation",
-    "watch": "npm run build && concurrently -n lona,lona-geom,lona-curves -c blue,green,magenta \"npm run watch -w packages/lona\" \"npm run watch -w packages/lona-geom\" \"npm run watch -w packages/lona-curves\"",
+    "build": "npm run build -w packages/lona && npm run build -w packages/lona-columnar && npm run build -w packages/lona-geom && npm run build -w packages/lona-curves && npm run build -w demos/show-curves && npm run build -w demos/profile-surface-optimisation",
+    "watch": "npm run build && concurrently -n lona,lona-columnar,lona-geom,lona-curves -c blue,cyan,green,magenta \"npm run watch -w packages/lona\" \"npm run watch -w packages/lona-columnar\" \"npm run watch -w packages/lona-geom\" \"npm run watch -w packages/lona-curves\"",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint --max-warnings 0 .",
     "typecheck": "npm run typecheck --workspaces --if-present",

@@ -402,6 +402,11 @@ specifically.
 
 ---
 
+## Columnar execution
+
+The experimental columnar map/reduce API is provided by the separate `lona-columnar` package.
+It uses `lona` values while keeping column planning and execution out of the base package.
+
 ## Symbolic differentiation
 
 For pure-DAG manipulation (no compilation), the `api/diff` family operates on

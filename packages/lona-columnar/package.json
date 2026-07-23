@@ -1,0 +1,36 @@
+{
+  "name": "lona-columnar",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/lona-columnar.js",
+  "types": "dist/main.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "import": "./dist/lona-columnar.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node ../../scripts/clean.mjs dist",
+    "test": "vitest run",
+    "test-watch": "vitest",
+    "dev": "vite",
+    "watch": "npm run clean && vite build --watch --mode debug",
+    "build": "npm run clean && tsc --noEmit && vite build",
+    "build:debug": "npm run clean && vite build --mode debug",
+    "preview": "vite preview",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --ignore-path ../../.prettierignore --write .",
+    "formatcheck": "prettier --ignore-path ../../.prettierignore --check .",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run formatcheck"
+  },
+  "peerDependencies": {
+    "lona": "1.0.0"
+  }
+}

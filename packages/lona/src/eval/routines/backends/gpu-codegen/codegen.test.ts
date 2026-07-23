@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import { BinaryOp, LiteralNum, Variable } from "../../../../core/tree";
 import { compileTape } from "../../../tape";
 import { compileGpuCodegenFromTape, planGpuCodegenChunks } from "./codegen";
+import { emitTapeJvpWgsl, emitTapeWgsl } from "./emit-tape-wgsl";
 import { destroyGpu, initGpu } from "../gpu-util";
 
 const shouldTestGpu = process.env.LONA_TEST_GPU === "1";
@@ -46,6 +47,43 @@ describe("GPU codegen chunk planning", () => {
         (slot) => slot === plan.escapeSlot[sharedIndex],
       ),
     ).toHaveLength(1);
+  });
+
+  test("emits tape arithmetic independently of an invocation layout", () => {
+    const x = new Variable("x");
+    const root = new BinaryOp(
+      "ADD",
+      new BinaryOp("MUL", x, x),
+      new LiteralNum(1),
+    );
+    const tape = compileTape([root])!;
+    const emitted = emitTapeWgsl(tape, (slot) => `source[${slot}u]`);
+
+    expect(emitted.body).toContain("source[0u]");
+    expect(emitted.body).toContain(" * ");
+    expect(emitted.body).toContain(" + ");
+    expect(emitted.roots).toEqual([`_${tape.rootIndices[0]}`]);
+    expect(emitted.body).not.toContain("inputData");
+    expect(emitted.body).not.toContain("uniformData");
+  });
+
+  test("emits seeded multi-direction JVP expressions", () => {
+    const x = new Variable("x");
+    const y = new Variable("y");
+    const tape = compileTape([
+      new BinaryOp("MUL", x, y),
+      new BinaryOp("ADD", x, y),
+    ])!;
+    const emitted = emitTapeJvpWgsl(tape, 2, (slot) => ({
+      value: `values[${slot}u]`,
+      tangent: (direction) => `seeds[${slot * 2 + direction}u]`,
+    }));
+
+    expect(emitted.body).toContain("seeds[0u]");
+    expect(emitted.body).toContain("seeds[3u]");
+    expect(emitted.body).toContain(" * ");
+    expect(emitted.tangentRoots).toHaveLength(2);
+    expect(emitted.tangentRoots[0]).toHaveLength(2);
   });
 
   test("rejects invalid chunk limits", () => {

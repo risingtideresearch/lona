@@ -2,13 +2,31 @@
  * JS interpreter backend — walks a CompiledTape in JavaScript.
  */
 import type { VarName } from "../../../../core/tree";
+import { evalTape, compileSeededJvp } from "./tape-eval";
 import {
-  evalTape,
-  compileForwardAutodiff,
-  compileForwardAutodiffMulti,
-} from "./tape-eval";
-import { registerBackend } from "../../backend";
+  registerBackend,
+  type KernelEnvelope,
+  type JvpKernel,
+} from "../../backend";
 import type { VarMap } from "../../types";
+import { adaptSyncJvpToGrad, adaptSyncJvpToJacobian } from "../_jvp-adapters";
+
+function compileJvp(
+  tape: Parameters<typeof compileSeededJvp>[0],
+  numDirections: number,
+): KernelEnvelope<JvpKernel> {
+  return {
+    varSlots: tape.varSlots,
+    numVars: tape.numVars,
+    backend: "js-interp",
+    kernel: {
+      kind: "sync-jvp",
+      numRoots: tape.rootIndices.length,
+      numDirections,
+      evalPacked: compileSeededJvp(tape, numDirections),
+    },
+  };
+}
 
 registerBackend({
   name: "js-interp",
@@ -34,31 +52,20 @@ registerBackend({
   },
 
   compileGrad(tape, diffVars) {
-    const fn = compileForwardAutodiff(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "js-interp",
-      kernel: {
-        kind: "sync-grad",
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToGrad(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 
+  compileJvp,
+
   compileJacobian(tape, diffVars) {
-    const fn = compileForwardAutodiffMulti(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "js-interp",
-      kernel: {
-        kind: "sync-jacobian",
-        numRoots: tape.rootIndices.length,
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToJacobian(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 });

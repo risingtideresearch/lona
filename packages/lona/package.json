@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/main.d.ts",
       "import": "./dist/lona.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
     }
   },
   "files": [
