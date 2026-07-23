@@ -9,6 +9,7 @@ export type {
   PlaceableStageKind,
   CpuBackendName,
   GpuBackendName,
+  ColumnarBackendName,
   BackendPreference,
   PlacementConfig,
   AutoTargetConfig,

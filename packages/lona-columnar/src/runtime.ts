@@ -33,6 +33,7 @@ import type {
 import type {
   ConcreteResult,
   CpuBackendName,
+  ColumnarBackendName,
   ExecutionTarget,
   GpuBackendName,
   NumBuildResult,
@@ -72,6 +73,12 @@ const CPU_BACKENDS: ReadonlySet<string> = new Set([
   "wasm-codegen",
 ]);
 const GPU_BACKENDS: ReadonlySet<string> = new Set(["gpu-codegen"]);
+
+function backendTarget(backend: ColumnarBackendName): ExecutionTarget {
+  if (CPU_BACKENDS.has(backend)) return "cpu";
+  if (GPU_BACKENDS.has(backend)) return "gpu";
+  throw new Error(`unsupported columnar stage backend '${backend}'`);
+}
 
 function normalizeRoutineResult(
   routine: ValueRoutine | MultiValueRoutine,
@@ -512,10 +519,20 @@ function compileStages(
     for (const stage of definition.stages) {
       const placement = effectiveStagePlacement(stage, opts);
       const targets = stageTargets(stage, placement, opts);
+      const requestedBackend = stage.requestedBackend;
+      const requestedTarget = requestedBackend
+        ? backendTarget(requestedBackend)
+        : undefined;
       const failures: string[] = [];
       let selected: CompiledStage | null = null;
 
       for (const target of targets) {
+        if (requestedTarget && requestedTarget !== target) {
+          failures.push(
+            `backend '${requestedBackend}' requires ${requestedTarget} placement`,
+          );
+          continue;
+        }
         if (target === "gpu") {
           const unsupported = gpuUnsupportedReason(stage);
           if (unsupported) {
@@ -528,7 +545,11 @@ function compileStages(
           }
         }
 
-        const backends = target === "gpu" ? gpuBackends : cpuBackends;
+        const backends: readonly ColumnarBackendName[] = requestedBackend
+          ? [requestedBackend]
+          : target === "gpu"
+            ? gpuBackends
+            : cpuBackends;
         for (const backend of backends) {
           try {
             selected = compileCandidate(stage, target, backend);

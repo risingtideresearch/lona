@@ -364,6 +364,48 @@ describe("columnar CPU runtime", () => {
     await expect(forcedCpu.evalAsync(new Map())).resolves.toBe(4);
   });
 
+  test("stage backend overrides routine-level backend candidates", async () => {
+    const routine = columnarRoutine(
+      () =>
+        column([asNum(2)], {
+          placement: "cpu",
+          backend: "js-interp",
+        })
+          .map((value) => value.square(), {
+            placement: "cpu",
+            backend: "js-codegen",
+          })
+          .output(([value]) => value!, {
+            placement: "cpu",
+            backend: "wasm-interp",
+          }),
+      {
+        placement: "cpu",
+        backends: { cpu: "wasm-codegen" },
+      },
+    );
+
+    expect(routine.stages.map((stage) => stage.backend)).toEqual([
+      "js-interp",
+      "js-codegen",
+      "wasm-interp",
+    ]);
+    await expect(routine.evalAsync(new Map())).resolves.toBe(4);
+  });
+
+  test("rejects a stage backend incompatible with hard placement", () => {
+    expect(() =>
+      columnarRoutine(
+        () =>
+          column([asNum(1)], {
+            placement: "gpu",
+            backend: "js-interp",
+          }).output(),
+        { backends: { cpu: "js-codegen" } },
+      ),
+    ).toThrow(/backend 'js-interp' requires cpu placement/);
+  });
+
   test("auto target and backend preferences resolve by stage kind", async () => {
     const routine = columnarRoutine(
       () =>

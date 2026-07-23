@@ -87,8 +87,8 @@ const total: number = await routine.evalAsync(vars);
 `output(build)` adds a final CPU whole-column scalar callback when post-processing is needed.
 Columnar routines use an async evaluation surface because GPU output requires a readback.
 
-To require a map to run on GPU, set a hard stage placement. Backend selection remains a
-routine-level concern:
+A stage can select both its placement and its backend. A stage-level `backend` overrides the
+routine-level candidate list for that stage; it must be compatible with the resolved placement:
 
 ```ts
 await initGpu();
@@ -97,6 +97,7 @@ const mapped = column(values).map({
   using: { scale },
   build: (value, { index, using }) => value.mul(using.scale).add(index),
   placement: "gpu",
+  backend: "gpu-codegen",
 });
 
 const routine = columnarRoutine(() => mapped.output(([value]) => value!), {
@@ -158,7 +159,8 @@ const routine = columnarRoutine(() => result, {
 
 For `"auto"`, targets and their backends are tried in configured order during compilation. A
 hard `"cpu"` or `"gpu"` placement may try another backend on that same target, but never changes
-target. Transfers are inferred only after placements resolve. After evaluation,
+target. `backend` is also accepted by `column`, `map`, `reduce`/built-in reductions, `then`, and
+callback-based `output` options. Transfers are inferred only after placements resolve. After evaluation,
 `routine.lastEvaluationStats` reports upload/download bytes, dispatch and readback counts, total
 wall time, and per-stage timings. Device buffers are reused by size and usage between completed
 evaluations.

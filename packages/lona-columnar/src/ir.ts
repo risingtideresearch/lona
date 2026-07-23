@@ -1,5 +1,5 @@
 import type { NumNode, Variable } from "lona/internal";
-import type { StagePlacement } from "./types";
+import type { ColumnarBackendName, StagePlacement } from "./types";
 import type { ValueShape } from "./shape";
 
 export type StageId = number;
@@ -44,6 +44,7 @@ export interface SourceStage {
   /** Flattened row-major scalar roots. */
   readonly roots: readonly NumNode[];
   readonly requestedPlacement?: StagePlacement;
+  readonly requestedBackend?: ColumnarBackendName;
 }
 
 export interface MapStage {
@@ -56,6 +57,7 @@ export interface MapStage {
   readonly using: ScalarBindings;
   readonly kernel: ColumnarKernel;
   readonly requestedPlacement?: StagePlacement;
+  readonly requestedBackend?: ColumnarBackendName;
 }
 
 export type BuiltInReduction = "sum" | "product" | "min" | "max";
@@ -74,6 +76,7 @@ export interface ReduceStage {
   readonly order: "left" | "tree";
   readonly builtIn?: BuiltInReduction;
   readonly requestedPlacement?: StagePlacement;
+  readonly requestedBackend?: ColumnarBackendName;
 }
 
 export interface ResultShape {
@@ -93,6 +96,7 @@ export interface WholeColumnStage {
   readonly roots: readonly NumNode[];
   readonly resultShape: ResultShape;
   readonly requestedPlacement?: StagePlacement;
+  readonly requestedBackend?: ColumnarBackendName;
 }
 
 export type ColumnarStage =

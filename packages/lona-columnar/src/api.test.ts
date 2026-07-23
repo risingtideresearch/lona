@@ -50,10 +50,15 @@ describe("columnar column Phase 1 builder", () => {
     expect(source.roots).toEqual([x.n, y.n]);
     expect(Object.isFrozen(source.roots)).toBe(true);
 
-    const placed = getColumnDefinition(column([x.add(1)], { placement: "gpu" }))
-      .stages[0]!;
+    const placed = getColumnDefinition(
+      column([x.add(1)], {
+        placement: "cpu",
+        backend: "js-interp",
+      }),
+    ).stages[0]!;
     if (placed.kind !== "source") throw new Error("expected source");
-    expect(placed.requestedPlacement).toBe("gpu");
+    expect(placed.requestedPlacement).toBe("cpu");
+    expect(placed.requestedBackend).toBe("js-interp");
   });
 
   test("validates NumStruct width and supports an empty shape witness", () => {

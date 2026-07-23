@@ -20,6 +20,7 @@ export type PlaceableStageKind =
 export type CpuBackendName =
   "js-interp" | "js-codegen" | "wasm-interp" | "wasm-codegen";
 export type GpuBackendName = "gpu-codegen";
+export type ColumnarBackendName = CpuBackendName | GpuBackendName;
 export type BackendPreference<T> = T | readonly T[];
 
 export interface PlacementConfig {
@@ -42,6 +43,8 @@ export interface AutoTargetConfig {
 
 export interface StageOptions {
   placement?: StagePlacement;
+  /** Backend required for this stage, overriding routine-level candidates. */
+  backend?: ColumnarBackendName;
 }
 
 /** Context supplied while tracing a map callback. */
@@ -164,6 +167,7 @@ export interface Column<T extends ColumnValue> {
     using: TUsing;
     build: (value: T, context: MapContext<TUsing>) => U;
     placement?: StagePlacement;
+    backend?: ColumnarBackendName;
   }): Column<U>;
 
   reduce(
@@ -179,6 +183,7 @@ export interface Column<T extends ColumnValue> {
     associative: boolean;
     order?: ReductionOrder;
     placement?: StagePlacement;
+    backend?: ColumnarBackendName;
   }): ReducedColumn<T>;
 
   sum(this: Column<Num>, opts?: BuiltInReductionOptions): ReducedColumn<T>;
@@ -201,6 +206,7 @@ export interface Column<T extends ColumnValue> {
     using: TUsing;
     build: (values: readonly T[], context: UsingContext<TUsing>) => Column<U>;
     placement?: StagePlacement;
+    backend?: ColumnarBackendName;
   }): Column<U>;
 
   /** Return the reduced value without adding an execution stage. */
@@ -223,6 +229,7 @@ export interface Column<T extends ColumnValue> {
     using: TUsing;
     build: (values: readonly T[], context: UsingContext<TUsing>) => R;
     placement?: StagePlacement;
+    backend?: ColumnarBackendName;
   }): ColumnarOutput<R>;
 }
 

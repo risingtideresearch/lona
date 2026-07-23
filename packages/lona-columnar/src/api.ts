@@ -34,6 +34,7 @@ interface MapSpec<
   using: TUsing;
   build: (value: T, context: MapContext<TUsing>) => U;
   placement?: StagePlacement;
+  backend?: StageOptions["backend"];
 }
 
 interface ReduceSpec<T extends ColumnValue, TUsing extends StageUsing> {
@@ -43,6 +44,7 @@ interface ReduceSpec<T extends ColumnValue, TUsing extends StageUsing> {
   associative: boolean;
   order?: ReductionOptions["order"];
   placement?: StagePlacement;
+  backend?: StageOptions["backend"];
 }
 
 interface OutputSpec<
@@ -53,6 +55,7 @@ interface OutputSpec<
   using: TUsing;
   build: (values: readonly T[], context: UsingContext<TUsing>) => R;
   placement?: StagePlacement;
+  backend?: StageOptions["backend"];
 }
 
 interface ThenSpec<
@@ -63,6 +66,7 @@ interface ThenSpec<
   using: TUsing;
   build: (values: readonly T[], context: UsingContext<TUsing>) => Column<U>;
   placement?: StagePlacement;
+  backend?: StageOptions["backend"];
 }
 
 class ColumnarOutputHandle<
@@ -127,6 +131,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       using: traced.using,
       kernel: traced.kernel,
       requestedPlacement: stageOptions.placement,
+      requestedBackend: stageOptions.backend,
     });
 
     return new ColumnHandle(
@@ -202,6 +207,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
         reductionOptions.order ??
         (reductionOptions.associative ? "tree" : "left"),
       requestedPlacement: reductionOptions.placement,
+      requestedBackend: reductionOptions.backend,
     });
 
     return new ColumnHandle(
@@ -268,6 +274,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       order: opts.order ?? "tree",
       builtIn: operation,
       requestedPlacement: opts.placement,
+      requestedBackend: opts.backend,
     });
     return new ColumnHandle(
       this.builder,
@@ -393,6 +400,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       roots: traced.roots,
       resultShape: traced.resultShape,
       requestedPlacement: stageOptions.placement,
+      requestedBackend: stageOptions.backend,
     });
 
     const child = returnedColumn!;
@@ -467,6 +475,7 @@ class ColumnHandle<T extends ColumnValue> implements Column<T> {
       roots: traced.roots,
       resultShape: traced.resultShape,
       requestedPlacement: stageOptions.placement,
+      requestedBackend: stageOptions.backend,
     });
     return new ColumnarOutputHandle<NumBuildResult>(
       this.builder.definition(stage.id, traced.resultShape),
@@ -500,6 +509,7 @@ export function column<T extends ColumnValue>(
   options?: {
     readonly shape?: ColumnValue;
     readonly placement?: StagePlacement;
+    readonly backend?: StageOptions["backend"];
   },
 ): Column<T> {
   const copiedValues = Object.freeze([...values]);
@@ -521,6 +531,7 @@ export function column<T extends ColumnValue>(
     shape,
     roots: Object.freeze(roots),
     requestedPlacement: options?.placement,
+    requestedBackend: options?.backend,
   });
 
   return new ColumnHandle(builder, source.id, copiedValues.length, shape);
