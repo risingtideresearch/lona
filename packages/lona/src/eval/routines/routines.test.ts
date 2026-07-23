@@ -162,26 +162,33 @@ describe("compileValueRoutine — multi-value shape", () => {
 describe("compileGradRoutine — grad shape", () => {
   const node = NumX.mul(NumX).add(NumY.mul(NumY)).n;
 
-  test.each(["js-interp", "wasm-interp"] as const)(
-    "backend=%s: returns {val, gradient}",
-    (backend) => {
-      const r = compileGradRoutine([node], undefined, { backend });
-      expect(r).not.toBeNull();
-      expect(r!.shape).toBe("grad");
-      const { val, gradient } = (r as GradRoutine).eval(
-        new Map<string, number>([
-          ["x", 2],
-          ["y", 3],
-        ]),
-      );
-      expect(val).toBeCloseTo(4 + 9, 10);
-      // gradient order follows varSlots (x, y) because we didn't specify diffVars
-      expect(gradient[0]).toBeCloseTo(4, 10); // ∂/∂x = 2x
-      expect(gradient[1]).toBeCloseTo(6, 10); // ∂/∂y = 2y
-    },
-  );
+  test.each([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ] as const)("backend=%s: returns {val, gradient}", (backend) => {
+    const r = compileGradRoutine([node], undefined, { backend });
+    expect(r).not.toBeNull();
+    expect(r!.shape).toBe("grad");
+    const { val, gradient } = (r as GradRoutine).eval(
+      new Map<string, number>([
+        ["x", 2],
+        ["y", 3],
+      ]),
+    );
+    expect(val).toBeCloseTo(4 + 9, 10);
+    // gradient order follows varSlots (x, y) because we didn't specify diffVars
+    expect(gradient[0]).toBeCloseTo(4, 10); // ∂/∂x = 2x
+    expect(gradient[1]).toBeCloseTo(6, 10); // ∂/∂y = 2y
+  });
 
-  test.each(["js-interp", "wasm-interp", "wasm-codegen"] as const)(
+  test.each([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ] as const)(
     "backend=%s: selectSpecialization traces and retraces grad routines",
     (backend) => {
       const branchy = ifTruthyElse(
@@ -221,8 +228,13 @@ describe("compileGradRoutine — jacobian shape", () => {
   const a = NumX.mul(NumX).n;
   const b = NumX.mul(NumY).n;
 
-  test("multi-root returns jacobian", () => {
-    const r = compileGradRoutine([a, b]);
+  test.each([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ] as const)("backend=%s: multi-root returns jacobian", (backend) => {
+    const r = compileGradRoutine([a, b], undefined, { backend });
     expect(r).not.toBeNull();
     expect(r!.shape).toBe("jacobian");
     const { vals, jacobian } = (r as JacobianRoutine).eval(
@@ -239,7 +251,12 @@ describe("compileGradRoutine — jacobian shape", () => {
     expect(jacobian[1]![1]).toBeCloseTo(2, 10); // ∂b/∂y = x
   });
 
-  test.each(["js-interp", "wasm-interp"] as const)(
+  test.each([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ] as const)(
     "backend=%s: selectSpecialization traces and retraces jacobian routines",
     (backend) => {
       const branchyA = ifTruthyElse(
@@ -323,10 +340,10 @@ describe("compileGradRoutine — jacobian shape", () => {
     const b = NumX.mul(NumY).n;
     expect(() =>
       compileGradRoutine([a, b], undefined, {
-        backend: "wasm-codegen",
+        backend: "wasm-codegen-sym",
         selectSpecialization: "trace",
       }),
-    ).toThrow(/jacobian backend 'wasm-codegen'/);
+    ).toThrow(/jacobian backend 'wasm-codegen-sym'/);
   });
 });
 

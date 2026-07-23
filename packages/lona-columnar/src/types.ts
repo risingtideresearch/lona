@@ -27,12 +27,7 @@ export type PlaceableStageKind =
 
 export type CpuBackendName =
   "js-interp" | "js-codegen" | "wasm-interp" | "wasm-codegen";
-/**
- * `gpu-interp` (the WGSL tape-interpreter backend from `lona` core) is only
- * implemented for the `source` stage here — it round-trips through a host
- * array like a CPU source would, rather than writing straight into a device
- * buffer, so `map`/`reduce` still require `gpu-codegen`.
- */
+/** GPU backends support device-resident source, map, and tree-reduction JVPs. */
 export type GpuBackendName = "gpu-codegen" | "gpu-interp";
 export type ColumnarBackendName = CpuBackendName | GpuBackendName;
 export type BackendPreference<T> = T | readonly T[];
@@ -122,6 +117,11 @@ export type ConcreteResult<R> = R extends Num
       : never;
 
 export interface ColumnarRoutineOptions {
+  /** Forward-autodiff execution controls. */
+  autodiff?: {
+    /** Maximum derivative directions evaluated in one JVP pass. */
+    readonly tangentBlockSize?: number;
+  };
   /** Placement policy inherited by stages without an explicit placement. */
   placement?: StagePlacement | PlacementConfig;
   /** Ordered target preferences used when a stage resolves to `auto`. */

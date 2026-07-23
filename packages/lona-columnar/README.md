@@ -184,9 +184,22 @@ await differentiated.evalAsync(vars); // { val, gradient }
 ```
 
 GPU autodiff supports both `gpu-codegen` and `gpu-interp`. Whole-column `then`/callback
-`output` execution and oversized JVPs requiring tangent blocking fall back according to auto
-placement or fail under hard GPU placement. The interpreter packs stage variables on-device,
-then evaluates arbitrary tangent seeds and multiple roots without readback. Shared scalar dependencies are differentiated on
+`output` execution falls back according to auto placement or fails under hard GPU placement.
+The interpreter packs stage variables on-device, then evaluates arbitrary tangent seeds and
+multiple roots without readback.
+
+Large derivative sets can be divided into bounded JVP passes:
+
+```ts
+const differentiated = columnarGradRoutine(build, diffVars, {
+  autodiff: { tangentBlockSize: 32 },
+});
+```
+
+Each pass reruns primal and tangent computation for its active directions. The final block is
+compiled at its actual width, and returned Jacobian columns remain in the original `diffVars`
+order. Structured outputs are flattened by collection order and then `NumStruct.toNums()`
+component order; one scalar produces a gradient and multiple scalars produce Jacobian rows. Shared scalar dependencies are differentiated on
 CPU and uploaded once per consuming stage.
 
 After evaluation,

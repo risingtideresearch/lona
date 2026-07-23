@@ -528,6 +528,83 @@ describe("columnar CPU runtime", () => {
     });
   });
 
+  test("preserves structured flattening order across tangent blocks", async () => {
+    const x = variableNum("jvp-structured-x");
+    const y = variableNum("jvp-structured-y");
+    const routine = columnarGradRoutine(
+      () => column([new Pair(x, y), new Pair(x.add(y), x.mul(y))]).output(),
+      ["jvp-structured-x", "jvp-structured-y", "jvp-structured-absent"],
+      {
+        placement: "cpu",
+        backends: { cpu: "js-interp" },
+        autodiff: { tangentBlockSize: 1 },
+      },
+    );
+
+    await expect(
+      routine.evalAsync(
+        new Map([
+          ["jvp-structured-x", 2],
+          ["jvp-structured-y", 3],
+        ]),
+      ),
+    ).resolves.toEqual({
+      vals: [2, 3, 5, 6],
+      jacobian: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [1, 1, 0],
+        [3, 2, 0],
+      ],
+    });
+    routine.dispose();
+  });
+
+  test("flattens structured callback outputs in collection/component order", async () => {
+    const x = variableNum("jvp-callback-shape-x");
+    const y = variableNum("jvp-callback-shape-y");
+    const routine = columnarGradRoutine(
+      () =>
+        column([x, y]).output(([left, right]) => [
+          new Pair(left!.add(right!), left!.mul(right!)),
+          new Pair(left!, right!),
+        ]),
+      ["jvp-callback-shape-x", "jvp-callback-shape-y"],
+      {
+        placement: "cpu",
+        backends: { cpu: "js-interp" },
+        autodiff: { tangentBlockSize: 1 },
+      },
+    );
+
+    await expect(
+      routine.evalAsync(
+        new Map([
+          ["jvp-callback-shape-x", 2],
+          ["jvp-callback-shape-y", 3],
+        ]),
+      ),
+    ).resolves.toEqual({
+      vals: [5, 6, 2, 3],
+      jacobian: [
+        [1, 1],
+        [3, 2],
+        [1, 0],
+        [0, 1],
+      ],
+    });
+    routine.dispose();
+  });
+
+  test("validates tangent block sizes", () => {
+    const x = variableNum("jvp-invalid-block-x");
+    expect(() =>
+      columnarGradRoutine(() => column([x]).output(), ["jvp-invalid-block-x"], {
+        autodiff: { tangentBlockSize: 0 },
+      }),
+    ).toThrow(/tangentBlockSize must be a positive integer/);
+  });
+
   test("evaluates a single flattened source root as a gradient", async () => {
     const x = variableNum("jvp-single-x");
     const routine = columnarGradRoutine(

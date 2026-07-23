@@ -100,13 +100,18 @@ function rejectUnsupportedSelectSpecialization(
   ]);
   const supportedGrad = new Set<BackendName>([
     "js-interp",
+    "js-codegen",
     "wasm-interp",
     "wasm-codegen",
   ]);
-  // Only the interpreting backends expose a `compileJacobian` (sync-jacobian)
-  // path that consumes a specialized tape; the codegen backends differentiate
-  // symbolically from roots and can't be fed a trace-specialized tape.
-  const supportedJacobian = new Set<BackendName>(["js-interp", "wasm-interp"]);
+  // These backends expose a native `compileJacobian` path that consumes the
+  // specialized tape. Symbolic backends still require the original roots.
+  const supportedJacobian = new Set<BackendName>([
+    "js-interp",
+    "js-codegen",
+    "wasm-interp",
+    "wasm-codegen",
+  ]);
   const supported =
     shape === "value"
       ? supportedValue

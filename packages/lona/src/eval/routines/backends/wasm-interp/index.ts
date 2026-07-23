@@ -3,66 +3,41 @@
  * a shared WebAssembly module.
  */
 import type { VarName } from "../../../../core/tree";
+import { compileWasmTapeFromTape, compileWasmSeededJvp } from "./tape-eval";
 import {
-  compileWasmTapeFromTape,
-  compileWasmForwardAutodiff,
-  compileWasmForwardAutodiffMulti,
-} from "./tape-eval";
-import { registerBackend } from "../../backend";
+  registerBackend,
+  type JvpKernel,
+  type KernelEnvelope,
+} from "../../backend";
 import type { VarMap } from "../../types";
+import { adaptSyncJvpToGrad, adaptSyncJvpToJacobian } from "../_jvp-adapters";
 import {
   compileSyncSymbolicGrad,
   compileSyncSymbolicJacobian,
 } from "../_symbolic-helpers";
 
+function compileJvp(
+  tape: Parameters<typeof compileWasmSeededJvp>[0],
+  numDirections: number,
+): KernelEnvelope<JvpKernel> {
+  return {
+    varSlots: tape.varSlots,
+    numVars: tape.numVars,
+    backend: "wasm-interp",
+    kernel: {
+      kind: "sync-jvp",
+      numRoots: tape.rootIndices.length,
+      numDirections,
+      evalPacked: compileWasmSeededJvp(tape, numDirections),
+    },
+  };
+}
+
 registerBackend({
   name: "wasm-interp",
   supported: new Set(["value", "grad", "jacobian"]),
 
-  compileJvp(tape, numDirections) {
-    const inputNames = tape.varSlots.slice(0, tape.numVars);
-    const jacobian = compileWasmForwardAutodiffMulti(tape, inputNames);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "wasm-interp",
-      kernel: {
-        kind: "sync-jvp",
-        numRoots: tape.rootIndices.length,
-        numDirections,
-        evalPacked(values: Float64Array, seeds: Float64Array) {
-          if (values.length !== tape.numVars) {
-            throw new Error(
-              `seeded JVP expected ${tape.numVars} values, got ${values.length}`,
-            );
-          }
-          if (seeds.length !== tape.numVars * numDirections) {
-            throw new Error(
-              `seeded JVP expected ${tape.numVars * numDirections} seeds, got ${seeds.length}`,
-            );
-          }
-          const vars = new Map<VarName, number>();
-          for (let input = 0; input < tape.numVars; input++) {
-            vars.set(inputNames[input]!, values[input]!);
-          }
-          const local = jacobian(vars);
-          return {
-            vals: local.vals,
-            tangents: local.jacobian.map((row) =>
-              Array.from({ length: numDirections }, (_, direction) => {
-                let result = 0;
-                for (let input = 0; input < tape.numVars; input++) {
-                  result +=
-                    row[input]! * seeds[input * numDirections + direction]!;
-                }
-                return result;
-              }),
-            ),
-          };
-        },
-      },
-    };
-  },
+  compileJvp,
 
   compileValue(tape) {
     const numRoots = tape.rootIndices.length;
@@ -84,32 +59,19 @@ registerBackend({
   },
 
   compileGrad(tape, diffVars) {
-    const fn = compileWasmForwardAutodiff(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "wasm-interp",
-      kernel: {
-        kind: "sync-grad",
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToGrad(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 
   compileJacobian(tape, diffVars) {
-    const fn = compileWasmForwardAutodiffMulti(tape, diffVars);
-    return {
-      varSlots: tape.varSlots,
-      numVars: tape.numVars,
-      backend: "wasm-interp",
-      kernel: {
-        kind: "sync-jacobian",
-        numRoots: tape.rootIndices.length,
-        diffVars,
-        eval: (vars: VarMap) => fn(vars as Map<VarName, number>),
-      },
-    };
+    return adaptSyncJvpToJacobian(
+      tape,
+      diffVars,
+      compileJvp(tape, diffVars.length),
+    );
   },
 });
 

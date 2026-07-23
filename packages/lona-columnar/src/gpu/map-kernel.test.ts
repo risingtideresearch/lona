@@ -77,6 +77,7 @@ describe("columnar GPU map", () => {
       ["gpu-jvp-x", "gpu-jvp-y", "gpu-jvp-scale"],
       {
         backends: { cpu: "js-interp", gpu: "gpu-codegen" },
+        autodiff: { tangentBlockSize: 2 },
       },
     );
 
@@ -123,7 +124,10 @@ describe("columnar GPU map", () => {
           "gpu-interp-jvp-z",
           "gpu-interp-jvp-scale",
         ],
-        { backends: { cpu: "js-interp", gpu: "gpu-interp" } },
+        {
+          backends: { cpu: "js-interp", gpu: "gpu-interp" },
+          autodiff: { tangentBlockSize: 2 },
+        },
       );
 
       const result = await routine.evalAsync(

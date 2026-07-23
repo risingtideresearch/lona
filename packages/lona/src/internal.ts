@@ -62,3 +62,8 @@ export {
   compileGpuInterpJvpDeviceKernel,
   type GpuInterpJvpDeviceKernel,
 } from "./eval/routines/backends/gpu-interp/jvp-device";
+export {
+  compileGpuCodegenJvpDeviceKernel,
+  type GpuCodegenJvpDeviceKernel,
+  type GpuCodegenJvpLayout,
+} from "./eval/routines/backends/gpu-codegen/jvp-device";

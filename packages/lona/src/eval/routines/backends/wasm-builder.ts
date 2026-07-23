@@ -492,8 +492,8 @@ export interface GradLocals {
   P_VARS: number;
   /** Param: number of differentiation variables */
   P_NUMDIFF: number;
-  /** Param: base offset of diffMask i32 array */
-  P_DIFFMASK: number;
+  /** Param: base offset of input-major, direction-minor f64 seed matrix */
+  P_SEEDS: number;
   /** Local: byte offset of current node's dual in values array */
   L_BASE: number;
   /** Local: byte offset of operand A's dual */
@@ -1432,49 +1432,28 @@ export function emitNumOpGrad(
     b.byte(W_F64_STORE);
     b.u32(3);
     b.u32(0);
-    // zero all derivs
-    gradZeroDerivLoop(b, g);
-    // set derivative for this var's diffIdx (if any)
+    // Copy this variable's arbitrary tangent seeds into its dual lanes.
+    gradLoopHead(b, g);
+    gradDerivAddr(b, g, g.L_BASE);
     b.byte(W_LOCAL_GET);
-    b.u32(g.P_DIFFMASK);
+    b.u32(g.P_SEEDS);
     b.byte(W_LOCAL_GET);
     b.u32(g.L_AIDX);
-    b.byte(W_I32_CONST);
-    b.i32(2);
-    b.byte(W_I32_SHL);
-    b.byte(W_I32_ADD);
-    b.byte(W_I32_LOAD);
-    b.u32(2);
-    b.u32(0);
-    b.byte(W_LOCAL_SET);
-    b.u32(g.L_D);
-    b.byte(W_LOCAL_GET);
-    b.u32(g.L_D);
     b.byte(W_LOCAL_GET);
     b.u32(g.P_NUMDIFF);
-    b.byte(W_I32_LT_U);
-    b.byte(W_IF);
-    b.byte(BT_VOID);
-    b.byte(W_LOCAL_GET);
-    b.u32(g.P_VAL);
-    b.byte(W_LOCAL_GET);
-    b.u32(g.L_BASE);
-    b.byte(W_I32_ADD);
+    b.byte(W_I32_MUL);
     b.byte(W_LOCAL_GET);
     b.u32(g.L_D);
-    b.byte(W_I32_CONST);
-    b.i32(1);
     b.byte(W_I32_ADD);
     b.byte(W_I32_CONST);
     b.i32(3);
     b.byte(W_I32_SHL);
     b.byte(W_I32_ADD);
-    b.byte(W_F64_CONST);
-    b.f64(1);
+    gradLoadF64(b);
     b.byte(W_F64_STORE);
     b.u32(3);
     b.u32(0);
-    b.byte(W_END);
+    gradLoopTail(b, g);
   } else if (
     (VALID_OPS.has(op) && op >= 10 && op <= 29) ||
     op === OP_ASSERT_ZERO ||

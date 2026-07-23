@@ -965,7 +965,7 @@ function emitGradChunkBody(
   numVars: number,
   numDiff: number,
   stride: number,
-  diffMask: Int32Array,
+  seedBaseOffset: number,
   escapeSlot: Int32Array,
   getCallIdx: (name: string) => number,
 ): Uint8Array {
@@ -1019,11 +1019,13 @@ function emitGradChunkBody(
       body.u32(a);
       body.byte(W_LOCAL_SET);
       body.u32(dst(0));
-      // Derivatives: 1 for the matching diffVar, 0 otherwise
-      const di = diffMask[a]!;
+      // Derivatives: arbitrary input-major seeds loaded from memory.
       for (let d = 0; d < numDiff; d++) {
-        body.byte(W_F64_CONST);
-        body.f64(d === di ? 1 : 0);
+        body.byte(W_I32_CONST);
+        body.i32(seedBaseOffset + (a * numDiff + d) * 8);
+        body.byte(W_F64_LOAD);
+        body.u32(3);
+        body.u32(0);
         body.byte(W_LOCAL_SET);
         body.u32(dst(1 + d));
       }
@@ -1431,26 +1433,24 @@ function emitGradBinaryDerivs(
   }
 }
 
-function emitGradAndWrap(
+export type WasmJvpFn = (
+  values: Float64Array,
+  seeds: Float64Array,
+) => { vals: number[]; tangents: number[][] };
+
+function emitJvpAndWrap(
   tape: CompiledTape,
-  diffVars: VarName[],
+  numDirections: number,
   maxChunkBytes: number,
   maxFunctionLocals: number,
-): WasmGradFn {
-  const numDiff = diffVars.length;
-  const stride = 1 + numDiff;
-  const numVars = tape.varSlots.length;
-
-  // diffMask[varSlot] = index into diffVars, or -1
-  const diffMask = new Int32Array(numVars).fill(-1);
-  for (let d = 0; d < numDiff; d++) {
-    for (let s = 0; s < tape.numVars; s++) {
-      if (tape.varSlots[s] === diffVars[d]) {
-        diffMask[s] = d;
-        break;
-      }
-    }
+): WasmJvpFn {
+  if (!Number.isInteger(numDirections) || numDirections < 0) {
+    throw new Error(
+      `seeded JVP direction count must be a non-negative integer, got ${numDirections}`,
+    );
   }
+  const stride = 1 + numDirections;
+  const numVars = tape.varSlots.length;
 
   // Derivative emission is approximately proportional to stride for both
   // body bytes and locals.
@@ -1460,25 +1460,24 @@ function emitGradAndWrap(
     maxFunctionLocals,
     stride,
   );
-  const { escapeSlot, numEscapeSlots: _ } = computeEscapes(tape, chunks);
+  const { escapeSlot } = computeEscapes(tape, chunks);
 
-  // Force root to escape
-  const N = tape.opcodes.length;
+  // Every root must escape so the wrapper can read multi-root results.
   let nextEscape = 0;
-  for (let i = 0; i < N; i++) {
-    if (escapeSlot[i]! >= 0)
+  for (let i = 0; i < tape.opcodes.length; i++) {
+    if (escapeSlot[i]! >= 0) {
       nextEscape = Math.max(nextEscape, escapeSlot[i]! + 1);
+    }
   }
-  if (escapeSlot[tape.rootIndices[0]]! < 0) {
-    escapeSlot[tape.rootIndices[0]] = nextEscape++;
+  for (const root of tape.rootIndices) {
+    if (escapeSlot[root]! < 0) escapeSlot[root] = nextEscape++;
   }
 
-  // Output region: stride f64s per escape slot
-  const bytesNeeded = Math.max(1, nextEscape * stride * 8);
+  // Escaped duals occupy the first region; arbitrary seeds follow them.
+  const seedBaseOffset = nextEscape * stride * 8;
+  const bytesNeeded = Math.max(1, seedBaseOffset + numVars * numDirections * 8);
   const numPages = Math.max(1, Math.ceil(bytesNeeded / 65536));
 
-  // --- Imports ---
-  // Derivative rules need additional imports (e.g. sin's derivative needs cos).
   const usedImportNames = collectUsedImports(tape);
   collectGradExtraImports(tape, usedImportNames);
   const importNames: string[] = [];
@@ -1491,31 +1490,26 @@ function emitGradAndWrap(
   }
   const numImports = importNames.length;
   const getCallIdx = (name: string) => importFuncIndex[name]!;
-
   const firstChunkFuncIdx = numImports;
   const entryFuncIdx = numImports + chunks.length;
 
-  // --- Type section ---
   const typeSec = new WasmBuilder();
   const hasUnary = importNames.some(
-    (n) => ALL_IMPORTS[IMPORT_INDEX[n]!]!.paramCount === 1,
+    (name) => ALL_IMPORTS[IMPORT_INDEX[name]!]!.paramCount === 1,
   );
   const hasBinary = importNames.some(
-    (n) => ALL_IMPORTS[IMPORT_INDEX[n]!]!.paramCount === 2,
+    (name) => ALL_IMPORTS[IMPORT_INDEX[name]!]!.paramCount === 2,
   );
-
   const funcTypeIdx = 0;
   let typeCount = 1;
   const unaryTypeIdx = hasUnary ? typeCount++ : -1;
   const binaryTypeIdx = hasBinary ? typeCount++ : -1;
 
   typeSec.u32(typeCount);
-  // type 0: (f64^numVars) -> ()
   typeSec.byte(0x60);
   typeSec.u32(numVars);
   for (let i = 0; i < numVars; i++) typeSec.byte(VT_F64);
   typeSec.u32(0);
-
   if (hasUnary) {
     typeSec.byte(0x60);
     typeSec.u32(1);
@@ -1532,7 +1526,6 @@ function emitGradAndWrap(
     typeSec.byte(VT_F64);
   }
 
-  // --- Import section ---
   const importSec = new WasmBuilder();
   importSec.u32(numImports);
   for (const name of importNames) {
@@ -1562,44 +1555,38 @@ function emitGradAndWrap(
   exportSec.byte(0x02);
   exportSec.u32(0);
 
-  // --- Code section ---
-  const chunkBodies: Uint8Array[] = [];
-  for (const chunk of chunks) {
-    chunkBodies.push(
-      emitGradChunkBody(
-        tape,
-        chunk,
-        numVars,
-        numDiff,
-        stride,
-        diffMask,
-        escapeSlot,
-        getCallIdx,
-      ),
-    );
-  }
-
-  // Entry body: call chunks, then return void (results in memory)
+  const chunkBodies = chunks.map((chunk) =>
+    emitGradChunkBody(
+      tape,
+      chunk,
+      numVars,
+      numDirections,
+      stride,
+      seedBaseOffset,
+      escapeSlot,
+      getCallIdx,
+    ),
+  );
   const entryBody = (() => {
-    const eb = new WasmBuilder(64);
-    eb.u32(0); // no locals
-    for (let c = 0; c < chunks.length; c++) {
-      for (let p = 0; p < numVars; p++) {
-        eb.byte(W_LOCAL_GET);
-        eb.u32(p);
+    const body = new WasmBuilder(64);
+    body.u32(0);
+    for (let chunk = 0; chunk < chunks.length; chunk++) {
+      for (let param = 0; param < numVars; param++) {
+        body.byte(W_LOCAL_GET);
+        body.u32(param);
       }
-      eb.byte(W_CALL);
-      eb.u32(firstChunkFuncIdx + c);
+      body.byte(W_CALL);
+      body.u32(firstChunkFuncIdx + chunk);
     }
-    eb.byte(W_END);
-    return eb.toBytes();
+    body.byte(W_END);
+    return body.toBytes();
   })();
 
   const codeSec = new WasmBuilder();
   codeSec.u32(chunks.length + 1);
-  for (const cb of chunkBodies) {
-    codeSec.u32(cb.length);
-    codeSec.bytes(cb);
+  for (const body of chunkBodies) {
+    codeSec.u32(body.length);
+    codeSec.bytes(body);
   }
   codeSec.u32(entryBody.length);
   codeSec.bytes(entryBody);
@@ -1613,7 +1600,6 @@ function emitGradAndWrap(
   mod.section(7, exportSec);
   mod.section(10, codeSec);
 
-  // --- Instantiate ---
   const env: Record<string, (...args: number[]) => number> = {};
   for (const name of importNames) {
     env[name] = ALL_IMPORTS[IMPORT_INDEX[name]!]!.jsFn;
@@ -1622,29 +1608,54 @@ function emitGradAndWrap(
   const instance = new WebAssembly.Instance(module, { env });
   const wasmEval = instance.exports.eval as (...args: number[]) => void;
   const wasmMem = instance.exports.mem as WebAssembly.Memory;
+  const args = new Array<number>(numVars).fill(0);
 
-  const slots = tape.varSlots;
-  const tapeNumVars = tape.numVars;
-  const args = new Array(slots.length);
-  const rootEscapeSlot = escapeSlot[tape.rootIndices[0]]!;
-  const rootByteOffset = rootEscapeSlot * stride * 8;
-
-  return (vars: Map<VarName, number>): GradientResult => {
-    for (let i = 0; i < tapeNumVars; i++) {
-      args[i] = vars.get(slots[i]!) ?? 0;
+  return (values, seeds) => {
+    if (values.length !== tape.numVars) {
+      throw new Error(
+        `seeded JVP expected ${tape.numVars} values, got ${values.length}`,
+      );
     }
-    for (let i = tapeNumVars; i < slots.length; i++) {
-      args[i] = 0;
+    if (seeds.length !== tape.numVars * numDirections) {
+      throw new Error(
+        `seeded JVP expected ${tape.numVars * numDirections} seeds, got ${seeds.length}`,
+      );
     }
+    args.fill(0);
+    for (let input = 0; input < tape.numVars; input++)
+      args[input] = values[input]!;
+    const seedView = new Float64Array(
+      wasmMem.buffer,
+      seedBaseOffset,
+      numVars * numDirections,
+    );
+    seedView.fill(0);
+    seedView.set(seeds);
     wasmEval(...args);
 
-    const view = new Float64Array(wasmMem.buffer, rootByteOffset, stride);
-    const gradient = new Array<number>(numDiff);
-    for (let d = 0; d < numDiff; d++) {
-      gradient[d] = view[1 + d]!;
+    const vals = new Array<number>(tape.rootIndices.length);
+    const tangents: number[][] = [];
+    for (let root = 0; root < tape.rootIndices.length; root++) {
+      const offset = escapeSlot[tape.rootIndices[root]!]! * stride * 8;
+      const result = new Float64Array(wasmMem.buffer, offset, stride);
+      vals[root] = result[0]!;
+      tangents.push(Array.from(result.subarray(1)));
     }
-    return { val: view[0]!, gradient };
+    return { vals, tangents };
   };
+}
+
+export function compileWasmJvpFromTape(
+  tape: CompiledTape,
+  numDirections: number,
+  options: CompileWasmOptions = {},
+): WasmJvpFn {
+  return emitJvpAndWrap(
+    tape,
+    numDirections,
+    options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES,
+    options.maxFunctionLocals ?? DEFAULT_MAX_FUNCTION_LOCALS,
+  );
 }
 
 export function compileWasmGradFromTape(
@@ -1652,10 +1663,21 @@ export function compileWasmGradFromTape(
   diffVars: VarName[],
   options: CompileWasmOptions = {},
 ): WasmGradFn {
-  return emitGradAndWrap(
-    tape,
-    diffVars,
-    options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES,
-    options.maxFunctionLocals ?? DEFAULT_MAX_FUNCTION_LOCALS,
-  );
+  const jvp = compileWasmJvpFromTape(tape, diffVars.length, options);
+  const seeds = new Float64Array(tape.numVars * diffVars.length);
+  for (let input = 0; input < tape.numVars; input++) {
+    for (let direction = 0; direction < diffVars.length; direction++) {
+      if (tape.varSlots[input] === diffVars[direction]) {
+        seeds[input * diffVars.length + direction] = 1;
+      }
+    }
+  }
+  return (vars) => {
+    const values = Float64Array.from(
+      tape.varSlots.slice(0, tape.numVars),
+      (name) => vars.get(name) ?? 0,
+    );
+    const result = jvp(values, seeds);
+    return { val: result.vals[0]!, gradient: result.tangents[0]! };
+  };
 }

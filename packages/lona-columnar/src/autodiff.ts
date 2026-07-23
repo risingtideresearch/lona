@@ -658,8 +658,42 @@ function disposeCompiledStage(compiled: CompiledJvpStage): void {
   compiled.gpuReduceKernel?.dispose();
 }
 
-/** Compile CPU and GPU forward-mode differentiation for a complete columnar graph. */
-export function compileColumnarGradRoutine(
+function flattenedResultWidth(
+  definition: ColumnarDefinition,
+  output: ColumnarStage,
+): number {
+  const resultShape = definition.resultShape!;
+  if (resultShape.collection === "single" && resultShape.values.length !== 1) {
+    throw new Error(
+      `columnar autodiff single result must contain one value shape, got ${resultShape.values.length}`,
+    );
+  }
+  const flattened = resultShape.values.reduce((total, shape, index) => {
+    if (!Number.isInteger(shape.width) || shape.width < 1) {
+      throw new Error(
+        `columnar autodiff result value ${index} has invalid width ${shape.width}`,
+      );
+    }
+    return total + shape.width;
+  }, 0);
+  const stageWidth =
+    output.kind === "source"
+      ? output.count * output.shape.width
+      : output.kind === "map"
+        ? output.count * output.outputShape.width
+        : output.kind === "reduce"
+          ? output.shape.width
+          : output.roots.length;
+  if (flattened !== stageWidth) {
+    throw new Error(
+      `columnar autodiff result shape flattens to ${flattened} scalars, but output stage ${output.id} produces ${stageWidth}`,
+    );
+  }
+  return flattened;
+}
+
+/** Compile one unblocked CPU/GPU forward-mode pass. */
+function compileUnblockedColumnarGradRoutine(
   definition: ColumnarDefinition,
   diffVars: readonly VarName[],
   opts: ColumnarRoutineOptions = {},
@@ -730,10 +764,7 @@ export function compileColumnarGradRoutine(
   }
 
   const output = definition.stages[definition.outputStage]!;
-  const numRoots = definition.resultShape.values.reduce(
-    (total, shape) => total + shape.width,
-    0,
-  );
+  const numRoots = flattenedResultWidth(definition, output);
   const shape = numRoots === 1 ? "grad" : "jacobian";
   const varSlots: VarName[] = [];
   const seen = new Set<VarName>();
@@ -1135,6 +1166,15 @@ export function compileColumnarGradRoutine(
         if (!stagedResult)
           throw new Error("columnar autodiff produced no output");
         const result = await ensureHost(stagedResult);
+        const expectedTangents = numRoots * numDirections;
+        if (
+          result.values.length !== numRoots ||
+          result.tangents.length !== expectedTangents
+        ) {
+          throw new Error(
+            `columnar autodiff output produced ${result.values.length} values and ${result.tangents.length} tangents; expected ${numRoots} and ${expectedTangents}`,
+          );
+        }
         return shape === "grad"
           ? {
               val: result.values[0]!,
@@ -1160,6 +1200,121 @@ export function compileColumnarGradRoutine(
       scalarRoots.routine?.dispose?.();
       gpuSource?.dispose();
       for (const compiled of compiledStages) disposeCompiledStage(compiled);
+    },
+  };
+}
+
+/** Compile CPU/GPU forward autodiff, optionally partitioning tangent directions. */
+export function compileColumnarGradRoutine(
+  definition: ColumnarDefinition,
+  diffVars: readonly VarName[],
+  opts: ColumnarRoutineOptions = {},
+): ColumnarGradRoutine {
+  const configuredBlockSize = opts.autodiff?.tangentBlockSize;
+  if (
+    configuredBlockSize !== undefined &&
+    (!Number.isInteger(configuredBlockSize) || configuredBlockSize < 1)
+  ) {
+    throw new Error(
+      `columnar autodiff tangentBlockSize must be a positive integer, got ${configuredBlockSize}`,
+    );
+  }
+  if (
+    diffVars.length === 0 ||
+    configuredBlockSize === undefined ||
+    configuredBlockSize >= diffVars.length
+  ) {
+    return compileUnblockedColumnarGradRoutine(definition, diffVars, opts);
+  }
+
+  const blockSize = configuredBlockSize;
+  const blocks: Array<{
+    readonly start: number;
+    readonly routine: ColumnarGradRoutine;
+  }> = [];
+  try {
+    for (let start = 0; start < diffVars.length; start += blockSize) {
+      blocks.push({
+        start,
+        routine: compileUnblockedColumnarGradRoutine(
+          definition,
+          diffVars.slice(start, start + blockSize),
+          opts,
+        ),
+      });
+    }
+  } catch (error) {
+    for (const block of blocks) block.routine.dispose();
+    throw error;
+  }
+
+  const first = blocks[0]!.routine;
+  const varSlots: VarName[] = [];
+  const seen = new Set<VarName>();
+  for (const { routine } of blocks) {
+    if (routine.numRoots !== first.numRoots || routine.shape !== first.shape) {
+      for (const block of blocks) block.routine.dispose();
+      throw new Error(
+        "columnar autodiff tangent blocks disagree on result shape",
+      );
+    }
+    for (const name of routine.varSlots) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      varSlots.push(name);
+    }
+  }
+  let disposed = false;
+  return {
+    shape: first.shape,
+    diffVars: Object.freeze([...diffVars]),
+    varSlots: Object.freeze(varSlots),
+    numVars: varSlots.length,
+    numRoots: first.numRoots,
+    async evalAsync(vars: VarMap): Promise<ColumnarAutodiffResult> {
+      if (disposed)
+        throw new Error("columnar autodiff routine has been disposed");
+      let values: number[] | null = null;
+      const jacobian = Array.from({ length: first.numRoots }, () =>
+        Array<number>(diffVars.length).fill(0),
+      );
+      for (const block of blocks) {
+        const result = await block.routine.evalAsync(vars);
+        const blockValues = "gradient" in result ? [result.val] : result.vals;
+        const blockJacobian =
+          "gradient" in result ? [result.gradient] : result.jacobian;
+        if (!values) values = [...blockValues];
+        if (
+          blockValues.length !== first.numRoots ||
+          blockJacobian.length !== first.numRoots
+        ) {
+          throw new Error(
+            "columnar autodiff tangent block returned an invalid result shape",
+          );
+        }
+        for (let root = 0; root < first.numRoots; root++) {
+          const row = blockJacobian[root]!;
+          const expectedWidth = block.routine.diffVars.length;
+          if (row.length !== expectedWidth) {
+            throw new Error(
+              `columnar autodiff tangent block returned ${row.length} directions; expected ${expectedWidth}`,
+            );
+          }
+          for (let direction = 0; direction < row.length; direction++) {
+            jacobian[root]![block.start + direction] = row[direction]!;
+          }
+        }
+      }
+      if (!values)
+        throw new Error("columnar autodiff produced no tangent blocks");
+      return first.shape === "grad"
+        ? { val: values[0]!, gradient: jacobian[0]! }
+        : { vals: values, jacobian };
+    },
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      for (const block of blocks) block.routine.dispose();
     },
   };
 }
