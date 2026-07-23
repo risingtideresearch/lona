@@ -49,8 +49,16 @@ export {
   requireGpuDevice,
   type DeviceBufferSlice,
 } from "./eval/routines/backends/gpu-util";
-export { emitTapeWgsl } from "./eval/routines/backends/gpu-codegen/emit-tape-wgsl";
+export {
+  emitTapeWgsl,
+  emitTapeJvpWgsl,
+  type TapeJvpVariableWgsl,
+} from "./eval/routines/backends/gpu-codegen/emit-tape-wgsl";
 export {
   compileGpuCodegenFromTape,
   type GpuCodegenEval,
 } from "./eval/routines/backends/gpu-codegen/codegen";
+export {
+  compileGpuInterpJvpDeviceKernel,
+  type GpuInterpJvpDeviceKernel,
+} from "./eval/routines/backends/gpu-interp/jvp-device";

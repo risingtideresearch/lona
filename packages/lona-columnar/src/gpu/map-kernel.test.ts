@@ -3,7 +3,7 @@ import type { NumStruct } from "lona";
 import { Num, asNum, variableNum } from "lona";
 import { varNode } from "lona/internal";
 import { destroyGpu, initGpu } from "lona/internal";
-import { column, columnarRoutine } from "../api";
+import { column, columnarGradRoutine, columnarRoutine } from "../api";
 import type { ColumnarParamInput } from "../ir";
 import { packGpuMapInputs } from "./map-kernel";
 
@@ -57,6 +57,123 @@ describe("columnar GPU map", () => {
       /expected 2 source values/,
     );
   });
+
+  gpuTest("propagates columnar JVP through GPU map and reduction", async () => {
+    const x = variableNum("gpu-jvp-x");
+    const y = variableNum("gpu-jvp-y");
+    const scale = variableNum("gpu-jvp-scale");
+    const routine = columnarGradRoutine(
+      () =>
+        column([x, y], { placement: "gpu", backend: "gpu-codegen" })
+          .map({
+            using: { scale },
+            build: (value, { index, using }) =>
+              value.mul(using.scale).add(index),
+            placement: "gpu",
+            backend: "gpu-codegen",
+          })
+          .sum({ placement: "gpu", backend: "gpu-codegen" })
+          .output(),
+      ["gpu-jvp-x", "gpu-jvp-y", "gpu-jvp-scale"],
+      {
+        backends: { cpu: "js-interp", gpu: "gpu-codegen" },
+      },
+    );
+
+    const result = await routine.evalAsync(
+      new Map([
+        ["gpu-jvp-x", 2],
+        ["gpu-jvp-y", 3],
+        ["gpu-jvp-scale", 4],
+      ]),
+    );
+    expect(result).toMatchObject({ val: 21 });
+    if (!("gradient" in result)) throw new Error("expected gradient");
+    expect(result.gradient[0]).toBeCloseTo(4, 5);
+    expect(result.gradient[1]).toBeCloseTo(4, 5);
+    expect(result.gradient[2]).toBeCloseTo(5, 5);
+    routine.dispose();
+  });
+
+  gpuTest(
+    "propagates arbitrary seeds through the GPU interpreter",
+    async () => {
+      const x = variableNum("gpu-interp-jvp-x");
+      const y = variableNum("gpu-interp-jvp-y");
+      const z = variableNum("gpu-interp-jvp-z");
+      const scale = variableNum("gpu-interp-jvp-scale");
+      const routine = columnarGradRoutine(
+        () =>
+          column([x, y, z], {
+            placement: "gpu",
+            backend: "gpu-interp",
+          })
+            .map({
+              using: { scale },
+              build: (value, { index, using }) =>
+                value.mul(using.scale).add(index),
+              placement: "gpu",
+              backend: "gpu-interp",
+            })
+            .sum({ placement: "gpu", backend: "gpu-interp" })
+            .output(),
+        [
+          "gpu-interp-jvp-x",
+          "gpu-interp-jvp-y",
+          "gpu-interp-jvp-z",
+          "gpu-interp-jvp-scale",
+        ],
+        { backends: { cpu: "js-interp", gpu: "gpu-interp" } },
+      );
+
+      const result = await routine.evalAsync(
+        new Map([
+          ["gpu-interp-jvp-x", 2],
+          ["gpu-interp-jvp-y", 3],
+          ["gpu-interp-jvp-z", 5],
+          ["gpu-interp-jvp-scale", 4],
+        ]),
+      );
+      expect(result).toMatchObject({ val: 43 });
+      if (!("gradient" in result)) throw new Error("expected gradient");
+      expect(result.gradient).toEqual([4, 4, 4, 10]);
+      routine.dispose();
+    },
+  );
+
+  gpuTest(
+    "includes a variable initial value in GPU JVP reduction",
+    async () => {
+      const x = variableNum("gpu-jvp-reduce-x");
+      const y = variableNum("gpu-jvp-reduce-y");
+      const initial = variableNum("gpu-jvp-reduce-initial");
+      const routine = columnarGradRoutine(
+        () =>
+          column([x, y], { placement: "gpu", backend: "gpu-codegen" })
+            .reduce((left, right) => left.add(right), initial, {
+              associative: true,
+              order: "tree",
+              placement: "gpu",
+              backend: "gpu-codegen",
+            })
+            .output(),
+        ["gpu-jvp-reduce-x", "gpu-jvp-reduce-y", "gpu-jvp-reduce-initial"],
+        { backends: { cpu: "js-interp", gpu: "gpu-codegen" } },
+      );
+
+      const result = await routine.evalAsync(
+        new Map([
+          ["gpu-jvp-reduce-x", 2],
+          ["gpu-jvp-reduce-y", 3],
+          ["gpu-jvp-reduce-initial", 4],
+        ]),
+      );
+      expect(result).toMatchObject({ val: 9 });
+      if (!("gradient" in result)) throw new Error("expected gradient");
+      expect(result.gradient).toEqual([1, 1, 1]);
+      routine.dispose();
+    },
+  );
 
   gpuTest("maps and reduces a multi-component column on device", async () => {
     const checkpoints: string[] = [];

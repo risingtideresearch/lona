@@ -16,7 +16,7 @@ placements.
 
 ```ts
 import { asNum, variable } from "lona";
-import { columnarRoutine, column } from "lona-columnar";
+import { columnarGradRoutine, columnarRoutine, column } from "lona-columnar";
 
 const x = variable("x");
 const y = variable("y");
@@ -160,7 +160,36 @@ const routine = columnarRoutine(() => result, {
 For `"auto"`, targets and their backends are tried in configured order during compilation. A
 hard `"cpu"` or `"gpu"` placement may try another backend on that same target, but never changes
 target. `backend` is also accepted by `column`, `map`, `reduce`/built-in reductions, `then`, and
-callback-based `output` options. Transfers are inferred only after placements resolve. After evaluation,
+callback-based `output` options. Transfers are inferred only after placements resolve.
+
+Forward autodiff uses the same stage placement controls. GPU codegen propagates primal values
+and seeded tangent directions in separate device buffers, keeping adjacent GPU source, map, and
+tree-reduction stages resident until a CPU stage or final result requires readback:
+
+```ts
+const differentiated = columnarGradRoutine(
+  () =>
+    column([x, y], { placement: "gpu", backend: "gpu-codegen" })
+      .map((value) => value.square(), {
+        placement: "gpu",
+        backend: "gpu-codegen",
+      })
+      .sum({ placement: "gpu", backend: "gpu-codegen" })
+      .output(),
+  ["x", "y"],
+  { backends: { cpu: "wasm-codegen", gpu: "gpu-codegen" } },
+);
+
+await differentiated.evalAsync(vars); // { val, gradient }
+```
+
+GPU autodiff supports both `gpu-codegen` and `gpu-interp`. Whole-column `then`/callback
+`output` execution and oversized JVPs requiring tangent blocking fall back according to auto
+placement or fail under hard GPU placement. The interpreter packs stage variables on-device,
+then evaluates arbitrary tangent seeds and multiple roots without readback. Shared scalar dependencies are differentiated on
+CPU and uploaded once per consuming stage.
+
+After evaluation,
 `routine.lastEvaluationStats` reports upload/download bytes, dispatch and readback counts, total
 wall time, and per-stage timings. Device buffers are reused by size and usage between completed
 evaluations.

@@ -1,9 +1,17 @@
-import type { NumNode, VarName } from "lona/internal";
+import type {
+  BackendName,
+  DeviceBufferSlice,
+  NumNode,
+  VarName,
+} from "lona/internal";
 import {
   KIND_LIT,
   LiteralNum,
   compileJvpRoutineFromTape,
   compileTape,
+  isGpuAvailable,
+  mapGpuReadbackBuffer,
+  requireGpuDevice,
   type SeededJvpRoutine,
   type VarMap,
 } from "lona/internal";
@@ -22,12 +30,29 @@ import type {
   ColumnarGradRoutine,
   ColumnarRoutineOptions,
   CpuBackendName,
+  ExecutionTarget,
+  GpuBackendName,
   StagePlacement,
 } from "./types";
 import {
   compileCpuJvpKernel,
   type CompiledCpuJvpKernel,
 } from "./cpu/compile-kernel";
+import {
+  compileGpuInterpJvpMapKernel,
+  compileGpuJvpMapKernel,
+  type CompiledGpuJvpMapKernel,
+} from "./gpu/jvp-map-kernel";
+import {
+  compileGpuInterpJvpReduceKernel,
+  compileGpuJvpReduceKernel,
+  type CompiledGpuJvpReduceKernel,
+} from "./gpu/jvp-reduce-kernel";
+import {
+  compileGpuInterpJvpSourceKernel,
+  compileGpuJvpSourceKernel,
+  type CompiledGpuJvpSourceKernel,
+} from "./gpu/jvp-source-kernel";
 
 type ExecutableStage = ColumnarStage;
 
@@ -45,9 +70,26 @@ interface DualValues {
 
 interface CompiledJvpStage {
   readonly stage: Exclude<ExecutableStage, SourceStage>;
-  readonly backend: CpuBackendName;
-  readonly kernel: CompiledCpuJvpKernel;
+  readonly placement: ExecutionTarget;
+  readonly backend: BackendName;
+  readonly cpuKernel?: CompiledCpuJvpKernel;
+  readonly gpuMapKernel?: CompiledGpuJvpMapKernel;
+  readonly gpuReduceKernel?: CompiledGpuJvpReduceKernel;
 }
+
+interface DeviceDualValues {
+  readonly location: "device";
+  readonly values: DeviceBufferSlice;
+  readonly tangents: DeviceBufferSlice;
+  readonly count: number;
+  readonly width: number;
+}
+
+interface HostDualValues extends DualValues {
+  readonly location: "host";
+}
+
+type StageDualValues = HostDualValues | DeviceDualValues;
 
 const CPU_BACKENDS: ReadonlySet<string> = new Set([
   "js-interp",
@@ -182,30 +224,90 @@ function configuredCpuBackends(
   return candidates;
 }
 
-function stageBackends(
-  stage: ExecutableStage,
+function configuredGpuBackends(
   opts: ColumnarRoutineOptions,
-): readonly CpuBackendName[] {
-  const placement = effectivePlacement(stage, opts);
-  const autoTargets =
-    opts.auto?.targets?.[stage.kind] ?? opts.auto?.targets?.default;
-  if (
-    placement === "gpu" ||
-    (placement === "auto" && autoTargets && !autoTargets.includes("cpu"))
-  ) {
+): readonly GpuBackendName[] {
+  const configured = opts.backends?.gpu;
+  const candidates =
+    configured === undefined
+      ? (["gpu-codegen"] as const)
+      : Array.isArray(configured)
+        ? configured
+        : [configured];
+  if (candidates.length === 0) {
     throw new Error(
-      `columnar autodiff stage ${stage.id} (${stage.kind}) currently supports CPU placement only`,
+      "columnar autodiff GPU backend preference must not be empty",
     );
   }
+  return candidates;
+}
+
+function stageTargets(
+  stage: ExecutableStage,
+  opts: ColumnarRoutineOptions,
+): readonly ExecutionTarget[] {
+  const placement = effectivePlacement(stage, opts);
+  if (placement !== "auto") return [placement];
+  const configured =
+    opts.auto?.targets?.[stage.kind] ?? opts.auto?.targets?.default;
+  if (configured) return configured;
+  return stage.kind === "source"
+    ? ["cpu", "gpu"]
+    : stage.kind === "map" || stage.kind === "reduce"
+      ? ["gpu", "cpu"]
+      : ["cpu"];
+}
+
+function requestedTarget(stage: ExecutableStage): ExecutionTarget | null {
+  if (!stage.requestedBackend) return null;
+  if (CPU_BACKENDS.has(stage.requestedBackend)) return "cpu";
+  if (
+    stage.requestedBackend === "gpu-codegen" ||
+    stage.requestedBackend === "gpu-interp"
+  )
+    return "gpu";
+  throw new Error(
+    `columnar autodiff backend '${stage.requestedBackend}' does not support GPU JVP`,
+  );
+}
+
+function targetBackends(
+  stage: ExecutableStage,
+  target: ExecutionTarget,
+  opts: ColumnarRoutineOptions,
+): readonly (CpuBackendName | GpuBackendName)[] {
   if (stage.requestedBackend) {
-    if (!CPU_BACKENDS.has(stage.requestedBackend)) {
-      throw new Error(
-        `columnar autodiff backend '${stage.requestedBackend}' is not a CPU backend`,
-      );
-    }
-    return [stage.requestedBackend as CpuBackendName];
+    return [stage.requestedBackend as CpuBackendName | GpuBackendName];
   }
-  return configuredCpuBackends(opts);
+  return target === "cpu"
+    ? configuredCpuBackends(opts)
+    : configuredGpuBackends(opts);
+}
+
+interface ResolvedSource {
+  readonly placement: ExecutionTarget;
+  readonly backend: BackendName;
+}
+
+function resolveSource(
+  stage: SourceStage,
+  opts: ColumnarRoutineOptions,
+): ResolvedSource {
+  const required = requestedTarget(stage);
+  const failures: string[] = [];
+  for (const target of stageTargets(stage, opts)) {
+    if (required && required !== target) continue;
+    if (target === "gpu" && !isGpuAvailable()) {
+      failures.push("GPU is unavailable");
+      continue;
+    }
+    for (const backend of targetBackends(stage, target, opts)) {
+      return { placement: target, backend };
+    }
+  }
+  throw new Error(
+    `columnar autodiff source could not resolve placement: ${failures.join("; ")}`,
+  );
 }
 
 function compileStage(
@@ -221,18 +323,86 @@ function compileStage(
     stage.kind === "map" || stage.kind === "reduce"
       ? stage.kernel.inputs
       : stage.inputs;
+  const required = requestedTarget(stage);
   const failures: string[] = [];
-  for (const backend of stageBackends(stage, opts)) {
-    try {
-      return {
-        stage,
-        backend,
-        kernel: compileCpuJvpKernel(roots, inputs, backend, numDirections),
-      };
-    } catch (error) {
-      failures.push(
-        `${backend}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+  for (const target of stageTargets(stage, opts)) {
+    if (required && required !== target) continue;
+    if (target === "gpu" && !isGpuAvailable()) {
+      failures.push("GPU is unavailable");
+      continue;
+    }
+    for (const backend of targetBackends(stage, target, opts)) {
+      try {
+        if (target === "cpu") {
+          return {
+            stage,
+            placement: "cpu",
+            backend,
+            cpuKernel: compileCpuJvpKernel(
+              roots,
+              inputs,
+              backend as CpuBackendName,
+              numDirections,
+            ),
+          };
+        }
+        if (stage.kind === "map") {
+          return {
+            stage,
+            placement: "gpu",
+            backend,
+            gpuMapKernel:
+              backend === "gpu-interp"
+                ? compileGpuInterpJvpMapKernel(
+                    roots,
+                    inputs,
+                    stage.inputShape.width,
+                    stage.outputShape.width,
+                    numDirections,
+                    stage.count,
+                  )
+                : compileGpuJvpMapKernel(
+                    roots,
+                    inputs,
+                    stage.inputShape.width,
+                    stage.outputShape.width,
+                    numDirections,
+                  ),
+          };
+        }
+        if (stage.kind === "reduce") {
+          if (!stage.associative || stage.order !== "tree") {
+            throw new Error(
+              "GPU autodiff reductions require associative: true and tree order",
+            );
+          }
+          return {
+            stage,
+            placement: "gpu",
+            backend,
+            gpuReduceKernel:
+              backend === "gpu-interp"
+                ? compileGpuInterpJvpReduceKernel(
+                    roots,
+                    inputs,
+                    stage.shape.width,
+                    numDirections,
+                    stage.inputCount + (stage.builtIn ? 0 : 1),
+                  )
+                : compileGpuJvpReduceKernel(
+                    roots,
+                    inputs,
+                    stage.shape.width,
+                    numDirections,
+                  ),
+          };
+        }
+        throw new Error("whole-column autodiff stages execute on CPU");
+      } catch (error) {
+        failures.push(
+          `${target}/${backend}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
   throw new Error(
@@ -360,7 +530,7 @@ function evalMap(
       row,
       stage.inputShape.width,
     );
-    const result = compiled.kernel.eval(inputs.values, inputs.tangents);
+    const result = compiled.cpuKernel!.eval(inputs.values, inputs.tangents);
     output.values.push(...result.values);
     output.tangents.push(...result.tangents);
   }
@@ -385,7 +555,7 @@ function combineReduce(
     left,
     right,
   );
-  return compiled.kernel.eval(inputs.values, inputs.tangents);
+  return compiled.cpuKernel!.eval(inputs.values, inputs.tangents);
 }
 
 function evalReduce(
@@ -479,10 +649,16 @@ function evalWhole(
     using,
     numDirections,
   );
-  return compiled.kernel.eval(inputs.values, inputs.tangents);
+  return compiled.cpuKernel!.eval(inputs.values, inputs.tangents);
 }
 
-/** Compile CPU forward-mode differentiation for a complete columnar graph. */
+function disposeCompiledStage(compiled: CompiledJvpStage): void {
+  compiled.cpuKernel?.dispose();
+  compiled.gpuMapKernel?.dispose();
+  compiled.gpuReduceKernel?.dispose();
+}
+
+/** Compile CPU and GPU forward-mode differentiation for a complete columnar graph. */
 export function compileColumnarGradRoutine(
   definition: ColumnarDefinition,
   diffVars: readonly VarName[],
@@ -497,18 +673,45 @@ export function compileColumnarGradRoutine(
   }
 
   const frozenDiffVars = Object.freeze([...diffVars]);
-  const sourceRoots = compileExternalRoots(
-    source.roots,
-    frozenDiffVars,
-    stageBackends(source, opts),
-  );
+  let sourcePlan = resolveSource(source, opts);
+  let sourceRoots: CompiledExternalRoots | null = null;
   const scalarRoots = compileExternalRoots(
     gatherScalarRoots(definition),
     frozenDiffVars,
     configuredCpuBackends(opts),
   );
+  let gpuSource: CompiledGpuJvpSourceKernel | null = null;
   const compiledStages: CompiledJvpStage[] = [];
   try {
+    if (sourcePlan.placement === "gpu") {
+      try {
+        gpuSource =
+          sourcePlan.backend === "gpu-interp"
+            ? compileGpuInterpJvpSourceKernel(source.roots, diffVars.length)
+            : compileGpuJvpSourceKernel(source.roots, diffVars.length);
+      } catch (error) {
+        if (
+          effectivePlacement(source, opts) !== "auto" ||
+          source.requestedBackend ||
+          !stageTargets(source, opts).includes("cpu")
+        ) {
+          throw error;
+        }
+        sourcePlan = {
+          placement: "cpu",
+          backend: configuredCpuBackends(opts)[0]!,
+        };
+      }
+    }
+    sourceRoots =
+      sourcePlan.placement === "cpu"
+        ? compileExternalRoots(source.roots, frozenDiffVars, [
+            sourcePlan.backend as CpuBackendName,
+          ])
+        : {
+            roots: Object.freeze([...source.roots]),
+            seeds: new Float64Array(0),
+          };
     for (const stage of definition.stages.slice(1)) {
       if (stage.kind === "source") {
         throw new Error("columnar autodiff does not support multiple sources");
@@ -516,10 +719,14 @@ export function compileColumnarGradRoutine(
       compiledStages.push(compileStage(stage, diffVars.length, opts));
     }
   } catch (error) {
-    sourceRoots.routine?.dispose?.();
+    sourceRoots?.routine?.dispose?.();
     scalarRoots.routine?.dispose?.();
-    for (const compiled of compiledStages) compiled.kernel.dispose();
+    gpuSource?.dispose();
+    for (const compiled of compiledStages) disposeCompiledStage(compiled);
     throw error;
+  }
+  if (!sourceRoots) {
+    throw new Error("columnar autodiff source compilation produced no roots");
   }
 
   const output = definition.stages[definition.outputStage]!;
@@ -537,6 +744,11 @@ export function compileColumnarGradRoutine(
       varSlots.push(name);
     }
   }
+  for (const name of gpuSource?.varSlots ?? []) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    varSlots.push(name);
+  }
   let disposed = false;
 
   return {
@@ -549,6 +761,7 @@ export function compileColumnarGradRoutine(
       if (disposed)
         throw new Error("columnar autodiff routine has been disposed");
 
+      const numDirections = diffVars.length;
       const sourceDual = evaluateExternalRoots(sourceRoots, vars);
       const scalarDual = evaluateExternalRoots(scalarRoots, vars);
       const scalarValues = new Map<
@@ -559,67 +772,394 @@ export function compileColumnarGradRoutine(
         scalarValues.set(scalarRoots.roots[root]!, {
           value: scalarDual.values[root]!,
           tangents: scalarDual.tangents.slice(
-            root * diffVars.length,
-            (root + 1) * diffVars.length,
+            root * numDirections,
+            (root + 1) * numDirections,
           ),
         });
       }
 
-      const stageValues = new Map<number, DualValues>([
-        [source.id, sourceDual],
-      ]);
-      for (const compiled of compiledStages) {
-        const stage = compiled.stage;
-        const sourceValue = stageValues.get(stage.source);
-        if (!sourceValue) {
+      const ownedBuffers: GPUBuffer[] = [];
+      let encoder: GPUCommandEncoder | null = null;
+      const createBuffer = (
+        byteLength: number,
+        usage: GPUBufferUsageFlags,
+      ): DeviceBufferSlice => {
+        const device = requireGpuDevice();
+        if (byteLength > device.limits.maxBufferSize) {
           throw new Error(
-            `columnar autodiff stage ${stage.id} is missing its source`,
+            `columnar GPU JVP buffer requires ${byteLength} bytes; device limit is ${device.limits.maxBufferSize}`,
           );
         }
-        const using = dualForRoots(
-          stage.using.roots,
-          scalarValues,
-          diffVars.length,
+        const buffer = device.createBuffer({
+          size: Math.max(byteLength, 4),
+          usage,
+        });
+        ownedBuffers.push(buffer);
+        return { buffer, offset: 0, byteLength };
+      };
+      const upload = (values: ArrayLike<number>): DeviceBufferSlice => {
+        const data = Float32Array.from(values);
+        const slice = createBuffer(
+          data.byteLength,
+          GPUBufferUsage.STORAGE |
+            GPUBufferUsage.COPY_DST |
+            GPUBufferUsage.COPY_SRC,
         );
-        const result =
-          stage.kind === "map"
-            ? evalMap(compiled, stage, sourceValue, using, diffVars.length)
-            : stage.kind === "reduce"
-              ? evalReduce(
-                  compiled,
-                  stage,
-                  sourceValue,
-                  using,
-                  dualForRoots(stage.initial, scalarValues, diffVars.length),
-                  diffVars.length,
-                )
-              : evalWhole(compiled, stage, sourceValue, using, diffVars.length);
-        stageValues.set(stage.id, result);
-      }
-
-      const result = stageValues.get(output.id);
-      if (!result) throw new Error("columnar autodiff produced no output");
-      return shape === "grad"
-        ? {
-            val: result.values[0]!,
-            gradient: result.tangents.slice(0, diffVars.length),
+        if (data.byteLength > 0) {
+          requireGpuDevice().queue.writeBuffer(
+            slice.buffer,
+            0,
+            data.buffer,
+            data.byteOffset,
+            data.byteLength,
+          );
+        }
+        return slice;
+      };
+      const ensureDevice = (
+        dual: StageDualValues,
+        count: number,
+        width: number,
+      ): DeviceDualValues => {
+        if (dual.location === "device") {
+          if (dual.count !== count || dual.width !== width) {
+            throw new Error("columnar GPU JVP column shape mismatch");
           }
-        : {
-            vals: result.values,
-            jacobian: Array.from({ length: numRoots }, (_, root) =>
-              result.tangents.slice(
-                root * diffVars.length,
-                (root + 1) * diffVars.length,
-              ),
-            ),
+          return dual;
+        }
+        return {
+          location: "device",
+          values: upload(dual.values),
+          tangents: upload(dual.tangents),
+          count,
+          width,
+        };
+      };
+      const ensureHost = async (
+        dual: StageDualValues,
+      ): Promise<HostDualValues> => {
+        if (dual.location === "host") return dual;
+        const readSlice = (
+          slice: DeviceBufferSlice,
+        ): { staging: GPUBuffer; copy: () => void } | null => {
+          if (slice.byteLength === 0) return null;
+          const staging = requireGpuDevice().createBuffer({
+            size: slice.byteLength,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          });
+          return {
+            staging,
+            copy: () => {
+              encoder ??= requireGpuDevice().createCommandEncoder();
+              encoder.copyBufferToBuffer(
+                slice.buffer,
+                slice.offset,
+                staging,
+                0,
+                slice.byteLength,
+              );
+            },
           };
+        };
+        const valueRead = readSlice(dual.values);
+        const tangentRead = readSlice(dual.tangents);
+        valueRead?.copy();
+        tangentRead?.copy();
+        if (encoder) {
+          requireGpuDevice().queue.submit([encoder.finish()]);
+          encoder = null;
+        }
+        try {
+          const [values, tangents] = await Promise.all([
+            valueRead
+              ? mapGpuReadbackBuffer(valueRead.staging, dual.values.byteLength)
+              : Promise.resolve(new Float32Array(0)),
+            tangentRead
+              ? mapGpuReadbackBuffer(
+                  tangentRead.staging,
+                  dual.tangents.byteLength,
+                )
+              : Promise.resolve(new Float32Array(0)),
+          ]);
+          return {
+            location: "host",
+            values: Array.from(values),
+            tangents: Array.from(tangents),
+          };
+        } finally {
+          valueRead?.staging.destroy();
+          tangentRead?.staging.destroy();
+        }
+      };
+      const allocateOutput = (
+        count: number,
+        width: number,
+      ): DeviceDualValues => ({
+        location: "device",
+        values: createBuffer(
+          count * width * 4,
+          GPUBufferUsage.STORAGE |
+            GPUBufferUsage.COPY_SRC |
+            GPUBufferUsage.COPY_DST,
+        ),
+        tangents: createBuffer(
+          count * width * numDirections * 4,
+          GPUBufferUsage.STORAGE |
+            GPUBufferUsage.COPY_SRC |
+            GPUBufferUsage.COPY_DST,
+        ),
+        count,
+        width,
+      });
+      const uniformCache: Array<{
+        roots: readonly NumNode[];
+        dual: DeviceDualValues;
+      }> = [];
+      const uploadUsing = (
+        roots: readonly NumNode[],
+        using: DualValues,
+      ): DeviceDualValues => {
+        const cached = uniformCache.find(
+          (entry) =>
+            entry.roots.length === roots.length &&
+            entry.roots.every((root, index) => root === roots[index]),
+        );
+        if (cached) return cached.dual;
+        const dual: DeviceDualValues = {
+          location: "device",
+          values: upload(using.values),
+          tangents: upload(using.tangents),
+          count: 1,
+          width: using.values.length,
+        };
+        uniformCache.push({ roots, dual });
+        return dual;
+      };
+
+      try {
+        const sourceHost: HostDualValues = {
+          location: "host",
+          ...sourceDual,
+        };
+        let initialSource: StageDualValues = sourceHost;
+        if (sourcePlan.placement === "gpu" && gpuSource) {
+          const inputValues = Float32Array.from(
+            gpuSource.varSlots,
+            (name) => (vars as Map<VarName, number>).get(name) ?? 0,
+          );
+          const inputTangents = new Float32Array(
+            gpuSource.numVars * numDirections,
+          );
+          for (let input = 0; input < gpuSource.numVars; input++) {
+            for (let direction = 0; direction < numDirections; direction++) {
+              if (gpuSource.varSlots[input] === diffVars[direction]) {
+                inputTangents[input * numDirections + direction] = 1;
+              }
+            }
+          }
+          const inputs: DeviceDualValues = {
+            location: "device",
+            values: upload(inputValues),
+            tangents: upload(inputTangents),
+            count: 1,
+            width: gpuSource.numVars,
+          };
+          const outputDual = allocateOutput(source.count, source.shape.width);
+          encoder ??= requireGpuDevice().createCommandEncoder();
+          gpuSource.encode(
+            encoder,
+            inputs.values,
+            inputs.tangents,
+            outputDual.values,
+            outputDual.tangents,
+          );
+          initialSource = outputDual;
+        } else if (sourcePlan.placement === "gpu") {
+          initialSource = ensureDevice(
+            sourceHost,
+            source.count,
+            source.shape.width,
+          );
+        }
+        const stageValues = new Map<number, StageDualValues>([
+          [source.id, initialSource],
+        ]);
+
+        for (const compiled of compiledStages) {
+          const stage = compiled.stage;
+          const sourceValue = stageValues.get(stage.source);
+          if (!sourceValue) {
+            throw new Error(
+              `columnar autodiff stage ${stage.id} is missing its source`,
+            );
+          }
+          const using = dualForRoots(
+            stage.using.roots,
+            scalarValues,
+            numDirections,
+          );
+
+          if (compiled.placement === "gpu" && stage.kind === "map") {
+            const input = ensureDevice(
+              sourceValue,
+              stage.count,
+              stage.inputShape.width,
+            );
+            const outputDual = allocateOutput(
+              stage.count,
+              stage.outputShape.width,
+            );
+            const uniformDual =
+              compiled.gpuMapKernel!.uniformWidth > 0
+                ? uploadUsing(stage.using.roots, using)
+                : null;
+            encoder ??= requireGpuDevice().createCommandEncoder();
+            compiled.gpuMapKernel!.encode(
+              encoder,
+              input.values,
+              input.tangents,
+              uniformDual?.values ?? null,
+              uniformDual?.tangents ?? null,
+              outputDual.values,
+              outputDual.tangents,
+              stage.count,
+            );
+            stageValues.set(stage.id, outputDual);
+            continue;
+          }
+
+          if (compiled.placement === "gpu" && stage.kind === "reduce") {
+            const initial = dualForRoots(
+              stage.initial,
+              scalarValues,
+              numDirections,
+            );
+            if (stage.inputCount === 0) {
+              stageValues.set(stage.id, { location: "host", ...initial });
+              continue;
+            }
+            const sourceInput = ensureDevice(
+              sourceValue,
+              stage.inputCount,
+              stage.shape.width,
+            );
+            let input = sourceInput;
+            let reductionCount = stage.inputCount;
+            if (!stage.builtIn) {
+              const combined = allocateOutput(
+                stage.inputCount + 1,
+                stage.shape.width,
+              );
+              const initialValues = Float32Array.from(initial.values);
+              const initialTangents = Float32Array.from(initial.tangents);
+              if (initialValues.byteLength > 0) {
+                requireGpuDevice().queue.writeBuffer(
+                  combined.values.buffer,
+                  0,
+                  initialValues.buffer,
+                  initialValues.byteOffset,
+                  initialValues.byteLength,
+                );
+              }
+              if (initialTangents.byteLength > 0) {
+                requireGpuDevice().queue.writeBuffer(
+                  combined.tangents.buffer,
+                  0,
+                  initialTangents.buffer,
+                  initialTangents.byteOffset,
+                  initialTangents.byteLength,
+                );
+              }
+              encoder ??= requireGpuDevice().createCommandEncoder();
+              encoder.copyBufferToBuffer(
+                sourceInput.values.buffer,
+                sourceInput.values.offset,
+                combined.values.buffer,
+                initialValues.byteLength,
+                sourceInput.values.byteLength,
+              );
+              if (sourceInput.tangents.byteLength > 0) {
+                encoder.copyBufferToBuffer(
+                  sourceInput.tangents.buffer,
+                  sourceInput.tangents.offset,
+                  combined.tangents.buffer,
+                  initialTangents.byteLength,
+                  sourceInput.tangents.byteLength,
+                );
+              }
+              input = combined;
+              reductionCount++;
+            }
+            if (reductionCount === 1) {
+              stageValues.set(stage.id, { ...input, count: 1 });
+              continue;
+            }
+            const outputDual = allocateOutput(1, stage.shape.width);
+            const uniformDual =
+              compiled.gpuReduceKernel!.uniformWidth > 0
+                ? uploadUsing(stage.using.roots, using)
+                : null;
+            encoder ??= requireGpuDevice().createCommandEncoder();
+            compiled.gpuReduceKernel!.encode(
+              encoder,
+              input.values,
+              input.tangents,
+              uniformDual?.values ?? null,
+              uniformDual?.tangents ?? null,
+              outputDual.values,
+              outputDual.tangents,
+              reductionCount,
+            );
+            stageValues.set(stage.id, outputDual);
+            continue;
+          }
+
+          const hostSource = await ensureHost(sourceValue);
+          const result =
+            stage.kind === "map"
+              ? evalMap(compiled, stage, hostSource, using, numDirections)
+              : stage.kind === "reduce"
+                ? evalReduce(
+                    compiled,
+                    stage,
+                    hostSource,
+                    using,
+                    dualForRoots(stage.initial, scalarValues, numDirections),
+                    numDirections,
+                  )
+                : evalWhole(compiled, stage, hostSource, using, numDirections);
+          stageValues.set(stage.id, { location: "host", ...result });
+        }
+
+        const stagedResult = stageValues.get(output.id);
+        if (!stagedResult)
+          throw new Error("columnar autodiff produced no output");
+        const result = await ensureHost(stagedResult);
+        return shape === "grad"
+          ? {
+              val: result.values[0]!,
+              gradient: result.tangents.slice(0, numDirections),
+            }
+          : {
+              vals: result.values,
+              jacobian: Array.from({ length: numRoots }, (_, root) =>
+                result.tangents.slice(
+                  root * numDirections,
+                  (root + 1) * numDirections,
+                ),
+              ),
+            };
+      } finally {
+        for (const buffer of ownedBuffers) buffer.destroy();
+      }
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
       sourceRoots.routine?.dispose?.();
       scalarRoots.routine?.dispose?.();
-      for (const compiled of compiledStages) compiled.kernel.dispose();
+      gpuSource?.dispose();
+      for (const compiled of compiledStages) disposeCompiledStage(compiled);
     },
   };
 }
